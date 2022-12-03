@@ -47,6 +47,8 @@
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Twist.h>
+#include <geometry_msgs/Pose2D.h>
+#include <cai_msgs/RobotState.h>
 #include <tf/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf/transform_listener.h>
@@ -55,14 +57,28 @@
 #include <tf2_ros/buffer.h>
 #include <nav_msgs/Path.h>
 #include <nav_msgs/Odometry.h>
+#include <std_msgs/String.h>
 #include <visualization_msgs/Marker.h>
 #include <fstream>
 #include <Eigen/QR>
-//#include <ackermann_msgs/AckermannDriveStamped.h>
 
+// Control State
+#define IDLE 0
+#define DEPARTURE 1
+#define TRACKING 2
+#define ARRIVING 3
+#define ROTATE 4
 
 using namespace std;
-
+float inline normalizeAngle(float val, float min, float max) {
+    float norm = 0.0;
+    if (val >= min)
+        norm = min + fmod((val - min), (max-min));
+    else
+        norm = max - fmod((min - val), (max-min));
+            
+    return norm;
+}
 namespace mpc_ros{
 
     class MPCPlannerROS : public nav_core::BaseLocalPlanner
@@ -75,20 +91,25 @@ namespace mpc_ros{
                 costmap_2d::Costmap2DROS* costmap_ros);
 
             // for visualisation, publishers of global and local plan
-            ros::Publisher g_plan_pub_, l_plan_pub_;
+            ros::Publisher g_plan_pub_, l_plan_pub_, mpc_status_pub_;
+            ros::Publisher g_plan_pub_isGoalReached, g_plan_pub_mpc_ok, g_plan_pub_empty;
+            std::string _driving_status;
+
             void publishLocalPlan(std::vector<geometry_msgs::PoseStamped>& path);
             void publishGlobalPlan(std::vector<geometry_msgs::PoseStamped>& path);
+            void getRobotPose(geometry_msgs::PoseStamped& robot_pose);
+            void publishDriveStatus(std::string drive_status);
 
             void LoadParams(const std::map<string, double> &params);
-
             // Local planner plugin functions
             void initialize(std::string name, tf2_ros::Buffer* tf,
                 costmap_2d::Costmap2DROS* costmap_ros);
             bool setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan);
             bool computeVelocityCommands(geometry_msgs::Twist& cmd_vel);
-            bool mpcComputeVelocityCommands(geometry_msgs::PoseStamped global_pose, geometry_msgs::Twist& cmd_vel);
-            base_local_planner::Trajectory findBestPath(const geometry_msgs::PoseStamped& global_pose, const geometry_msgs::PoseStamped& global_vel, geometry_msgs::PoseStamped& drive_velocities);
+            bool mpcComputeVelocityCommands(geometry_msgs::PoseStamped global_pose, geometry_msgs::Twist& cmd_vel, const std::vector<geometry_msgs::PoseStamped>& local_plan_);
+            base_local_planner::Trajectory findBestPath(geometry_msgs::PoseStamped& drive_velocities, const std::vector<geometry_msgs::PoseStamped>& local_plan_);
             bool isGoalReached();
+            void isArriving(const geometry_msgs::PoseStamped& current_pose);
             bool isInitialized() {return initialized_;}
             /**
              * @brief  Update the cost functions before planning
@@ -106,6 +127,9 @@ namespace mpc_ros{
                 const std::vector<geometry_msgs::Point>& footprint_spec);
             // see constructor body for explanations
 
+            void findClosestPoint(const geometry_msgs::PoseStamped& global_pose,
+                const std::vector<geometry_msgs::PoseStamped>& new_plan);
+
         private:
             //Pointer to external objects (do NOT delete object)
             costmap_2d::Costmap2DROS* costmap_ros_; ///<@brief pointer to costmap  
@@ -113,26 +137,26 @@ namespace mpc_ros{
             std::string global_frame_; ///< @brief The frame in which the controller will run
             std::string robot_base_frame_; ///< @brief Used as the base frame id of the robot
             std::vector<geometry_msgs::Point> footprint_spec_;
-            std::vector<geometry_msgs::PoseStamped> global_plan_;
+            std::vector<geometry_msgs::PoseStamped> global_plan_, local_plan_;
+            nav_msgs::Path _global_path;
+            geometry_msgs::Twist _feedback_vel;
+            geometry_msgs::Pose2D _robot_pose;
+
+            // define controller state
+            uint32_t _controller_state;
       
             base_local_planner::LocalPlannerUtil planner_util_;
             base_local_planner::LatchedStopRotateController latchedStopRotateController_;
-            base_local_planner::OdometryHelperRos odom_helper_;
             geometry_msgs::PoseStamped current_pose_;
             
             base_local_planner::SimpleTrajectoryGenerator generator_;
             base_local_planner::SimpleScoredSamplingPlanner scored_sampling_planner_;
             dynamic_reconfigure::Server<MPCPlannerConfig> *dsrv_;
             void reconfigureCB(MPCPlannerConfig &config, uint32_t level);
-            /*
-            base_local_planner::ObstacleCostFunction obstacle_costs_;
-            base_local_planner::OscillationCostFunction oscillation_costs_;
-            base_local_planner::MapGridCostFunction path_costs_;
-            base_local_planner::MapGridCostFunction goal_costs_;
-            base_local_planner::MapGridCostFunction goal_front_costs_;
-            base_local_planner::MapGridCostFunction alignment_costs_;
-            base_local_planner::TwirlingCostFunction twirling_costs_;
-            */
+            void getMapFramePath(std::vector<geometry_msgs::PoseStamped>& map_frame_path);
+            void globalPlanCB(const nav_msgs::Path& path); 
+            void feedbackVelCB(const geometry_msgs::Twist& feedback);
+            void robotPoseCB(const cai_msgs::RobotState& robot_pose);
 
             // Flags
             bool initialized_;
@@ -147,16 +171,18 @@ namespace mpc_ros{
             vector<double> mpc_theta;
 
             ros::NodeHandle _nh;
-            ros::Subscriber _sub_odom;
-            ros::Publisher _pub_odompath, _pub_mpctraj;
+            // ros::Subscriber _sub_odom;
+            ros::Subscriber _globalPlanCB, _feedbackVelCB, _robotPoseCB;
+            ros::Publisher _pub_odompath, _pub_mpctraj, _pub_odompath_withoutdownsampling, _pub_start_odom_path, _pub_end_odom_path;
             tf2_ros::Buffer *tf_;  ///
             
             nav_msgs::Odometry _odom;
-            nav_msgs::Path _odom_path, _mpc_traj; 
-            //ackermann_msgs::AckermannDriveStamped _ackermann_msg;
+            nav_msgs::Path _odom_path, _mpc_traj;
             geometry_msgs::Twist _twist_msg;
 
+
             string _map_frame, _odom_frame, _base_frame;
+            string _odom_topic, _global_plan_topic;
 
             MPC _mpc;
             map<string, double> _mpc_params;
@@ -164,16 +190,18 @@ namespace mpc_ros{
                 _w_angvel, _w_accel, _w_angvel_d, _w_accel_d, _max_angvel, _max_throttle, _bound_value;
 
             //double _Lf; 
-            double _dt, _w, _throttle, _speed, _max_speed;
+            double _dt, _w, _throttle, _speed, _max_speed, _default_max_speed;
             double _pathLength, _goalRadius, _waypointsDist;
+            double _tolerance, _safety_speed;
             int _downSampling;
             bool _debug_info, _delay_mode;
             double polyeval(Eigen::VectorXd coeffs, double x);
             Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order);
 
-            void odomCB(const nav_msgs::Odometry::ConstPtr& odomMsg);
+            // void odomCB(const nav_msgs::Odometry::ConstPtr& odomMsg);
             void desiredPathCB(const nav_msgs::Path::ConstPtr& pathMsg);
             void controlLoopCB(const ros::TimerEvent&);
+            base_local_planner::OdometryHelperRos odom_helper_;
     };
 };
 #endif /* MPC_LOCAL_PLANNER_NODE_ROS_H */
