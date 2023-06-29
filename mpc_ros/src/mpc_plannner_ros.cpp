@@ -762,3 +762,4 @@ namespace mpc_ros{
         auto result = Q.solve(yvals);
         return result;
     }
+}
