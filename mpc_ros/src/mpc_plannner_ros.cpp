@@ -11,6 +11,8 @@
  * BE BOUND BY THE TERMS OF THIS LICENSE. THE LICENSOR GRANTS YOU THE RIGHTS
  * CONTAINED HERE IN CONSIDERATION OF YOUR ACCEPTANCE OF SUCH TERMS AND
  * CONDITIONS.
+ * 
+ * Edit by OkDoky
  *
  */
 
@@ -37,15 +39,10 @@ namespace mpc_ros{
 
         ros::NodeHandle private_nh("~/" + name);
         _controller_state = IDLE;
-        g_plan_pub_ = private_nh.advertise<nav_msgs::Path>("global_plan", 1);
-        g_plan_pub_isGoalReached = private_nh.advertise<nav_msgs::Path>("global_plan/isGoalReached", 1);
-        g_plan_pub_mpc_ok = private_nh.advertise<nav_msgs::Path>("global_plan/mpcOk", 1);
-        g_plan_pub_empty = private_nh.advertise<nav_msgs::Path>("global_plan/empty", 1);
-        
-        l_plan_pub_ = private_nh.advertise<nav_msgs::Path>("local_plan", 1);
 
         tf_ = tf;
         costmap_ros_ = costmap_ros;
+
         //initialize the copy of the costmap the controller will use
         costmap_ = costmap_ros_->getCostmap();
         global_frame_ = costmap_ros_->getGlobalFrameID();
@@ -56,14 +53,6 @@ namespace mpc_ros{
         _safety_speed = 0.2;
         planner_util_.initialize(tf, costmap_, global_frame_);
         
-        if( private_nh.getParam( "odom_topic", _odom_topic ))
-        {
-            odom_helper_.setOdomTopic( _odom_topic );
-        }
-        else{
-            ROS_WARN("[MPCPlannerROS] could not get 'odom_topic' parameter");
-        }
-
         //Assuming this planner is being run within the navigation stack, we can
         //just do an upward search for the frequency at which its being run. This
         //also allows the frequency to be overwritten locally.
@@ -75,8 +64,7 @@ namespace mpc_ros{
         } else {
             nh_.param(controller_frequency_param_name, controller_frequency, 20.0);
             
-            if(controller_frequency > 0) {
-            } else {
+            if(controller_frequency <= 0){
                 ROS_WARN("A controller_frequency less than 0 has been set. Ignoring the parameter, assuming a rate of 20Hz");
             }
         }
@@ -87,18 +75,21 @@ namespace mpc_ros{
         private_nh.param<std::string>("odom_frame", _odom_frame, "odom");
         private_nh.param<std::string>("base_frame", _base_frame, "base_footprint");
         private_nh.param<std::string>("global_plan_topic", _global_plan_topic, "move_base/NavfnROS/plan");
+        private_nh.param<std::string>("odom_topic", _odom_topic, "odom")
 
+        odom_helper_.setOdomTopic(_odom_topic);
 
         //Publishers and Subscribers
+        _pub_g_plan = private_nh.advertise<nav_msgs::Path>("global_plan", 1);
+        _pub_l_plan = private_nh.advertise<nav_msgs::Path>("local_plan", 1);
+        _pub_mpctraj   = _nh.advertise<nav_msgs::Path>("mpc_trajectory", 1);// MPC trajectory output
+        _pub_odompath  = _nh.advertise<nav_msgs::Path>("mpc_reference", 1); // reference path for MPC ///mpc_reference 
+        _pub_mpc_status = _nh.advertise<std_msgs::String>("mpc_status",1);
+        
         _globalPlanCB = _nh.subscribe(_global_plan_topic, 1, &MPCPlannerROS::globalPlanCB, this); //global planner callback
         _feedbackVelCB = _nh.subscribe("feedback_vel", 1, &MPCPlannerROS::feedbackVelCB, this);
         _robotPoseCB = _nh.subscribe("robot_state", 1, &MPCPlannerROS::robotPoseCB, this);
-        _pub_mpctraj   = _nh.advertise<nav_msgs::Path>("mpc_trajectory", 1);// MPC trajectory output
-        _pub_odompath  = _nh.advertise<nav_msgs::Path>("mpc_reference", 1); // reference path for MPC ///mpc_reference 
-        _pub_odompath_withoutdownsampling = _nh.advertise<nav_msgs::Path>("mpc_reference_globalpath",1);
-        _pub_start_odom_path = _nh.advertise<nav_msgs::Path>("mpc_reference/start",1);
-        _pub_end_odom_path = _nh.advertise<nav_msgs::Path>("mpc_reference/end",1);
-        mpc_status_pub_ = _nh.advertise<std_msgs::String>("mpc_status",1);
+        
         //Init variables
         _throttle = 0.0; 
         _w = 0.0;
@@ -176,28 +167,19 @@ namespace mpc_ros{
         _robot_pose = robot_pose.pose;
     }
 
-    void MPCPlannerROS::getMapFramePath(std::vector<geometry_msgs::PoseStamped>& map_frame_path){
-        nav_msgs::Path __global_path = _global_path;
-        map_frame_path.resize(__global_path.poses.size());
-        // _global_path frame id : map
-        for (int i=0; i < __global_path.poses.size(); i++){
-            map_frame_path[i] = __global_path.poses[i];
-        }
-    }
-
     void MPCPlannerROS::publishDriveStatus(std::string drive_status) {
         _driving_status = drive_status;
         std_msgs::String msg;
         msg.data = _driving_status;
-        mpc_status_pub_.publish(msg); 
+        _pub_mpc_status.publish(msg); 
     }
 
     void MPCPlannerROS::publishLocalPlan(std::vector<geometry_msgs::PoseStamped>& path) {
-        base_local_planner::publishPlan(path, l_plan_pub_);
+        base_local_planner::publishPlan(path, _pub_l_plan);
     }
 
     void MPCPlannerROS::publishGlobalPlan(std::vector<geometry_msgs::PoseStamped>& path) {
-        base_local_planner::publishPlan(path, g_plan_pub_);
+        base_local_planner::publishPlan(path, _pub_g_plan);
     }
   
     bool MPCPlannerROS::setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan){
@@ -224,18 +206,17 @@ namespace mpc_ros{
         _mpc_params["BOUND"]    = _bound_value;
         _mpc.LoadParams(_mpc_params);
         //Display the parameters
-        cout << "\n===== Parameters =====" << endl;
-        cout << "debug_info: "  << _debug_info << endl;
-        cout << "delay_mode: "  << _delay_mode << endl;
-        //cout << "vehicle_Lf: "  << _Lf << endl;
-        cout << "rev vel: " << _ref_vel << endl;
-        cout << "max_speed: " << _max_speed << endl;
-        cout << "frequency: "   << _dt << endl;
-        cout << "mpc_steps: "   << _mpc_steps << endl;
-        cout << "mpc_ref_vel: " << _ref_vel << endl;
-        cout << "mpc_w_cte: "   << _w_cte << endl;
-        cout << "mpc_w_etheta: "  << _w_etheta << endl;
-        cout << "mpc_max_angvel: "  << _max_angvel << endl;
+        ROS_WARN("[MPCPlannerROS] ===== Parameters =====" << endl;
+        ROS_WARN("[MPCPlannerROS] debug_info: "  << _debug_info << endl;
+        ROS_WARN("[MPCPlannerROS] delay_mode: "  << _delay_mode << endl;
+        ROS_WARN("[MPCPlannerROS] rev vel: " << _ref_vel << endl;
+        ROS_WARN("[MPCPlannerROS] max_speed: " << _max_speed << endl;
+        ROS_WARN("[MPCPlannerROS] frequency: "   << _dt << endl;
+        ROS_WARN("[MPCPlannerROS] mpc_steps: "   << _mpc_steps << endl;
+        ROS_WARN("[MPCPlannerROS] mpc_ref_vel: " << _ref_vel << endl;
+        ROS_WARN("[MPCPlannerROS] mpc_w_cte: "   << _w_cte << endl;
+        ROS_WARN("[MPCPlannerROS] mpc_w_etheta: "  << _w_etheta << endl;
+        ROS_WARN("[MPCPlannerROS] mpc_max_angvel: "  << _max_angvel << endl;
         publishDriveStatus("SETPLAN");
 
         latchedStopRotateController_.resetLatching();
@@ -267,7 +248,7 @@ namespace mpc_ros{
         for (unsigned int i = 0; i < new_plan.size(); ++i) {
             global_plan_[i] = new_plan[i];
         }
-    }    
+    }
 
     void MPCPlannerROS::findClosestPoint(
         const geometry_msgs::PoseStamped& global_pose,
@@ -280,15 +261,12 @@ namespace mpc_ros{
         double _sample_length = 0.1;
         double _waypoint_dist = _sample_length;
 
-        nav_msgs::Path odom_path = nav_msgs::Path();
-
         if (new_plan.size() > 2){
             const double diff_x = new_plan[0].pose.position.x - new_plan[1].pose.position.x;
             const double diff_y = new_plan[0].pose.position.y - new_plan[1].pose.position.y;
             _waypoint_dist = sqrt(diff_x*diff_x + diff_y*diff_y);
         }
         int sample_size = int(_sample_length/_waypoint_dist);  // sample path size is 0.1m
-        // std::cout << "waypoint dist : " << _waypoint_dist << "sample_size :  " << sample_size << std::endl;
         for (unsigned int i = 0; i < new_plan.size();){
             double err_x = new_plan[i].pose.position.x - px;
             double err_y = new_plan[i].pose.position.y - py;
@@ -296,24 +274,11 @@ namespace mpc_ros{
             if (dist_path < ref_length) {
                 ref_length = dist_path;
                 start_point = i;
-                // std::cout << "ref length < dist path :" << ref_length << " < " << dist_path << "start point is : " << i << std::endl;
             }
-            else{
-                // std::cout << "ref length > dist path :" << ref_length << " > " << dist_path << std::endl;
+            else
                 break;
-
-            }
-            i+=sample_size;            
-        }
-        // std::cout << "set size down plan " << new_plan.size() << "->" << new_plan.size()-start_point << std::endl;
-        for (unsigned int i = start_point; i < new_plan.size()-start_point; ++i){
-            odom_path.poses.push_back(new_plan[i]);  
-        }
-
-        odom_path.header.frame_id = _map_frame;
-        odom_path.header.stamp = ros::Time::now();
-        _pub_odompath_withoutdownsampling.publish(odom_path);
-        
+            i+=sample_size;
+        }  
     }
 
     void MPCPlannerROS::isArriving(const geometry_msgs::PoseStamped& current_pose) {
@@ -374,7 +339,7 @@ namespace mpc_ros{
             publishDriveStatus("GOAL_REACHED");
             return true;
         }
-        isArriving(current_pose_);  
+        isArriving(current_pose_);
 
         
         
@@ -572,15 +537,11 @@ namespace mpc_ros{
             const double dy = odom_path.poses[i].pose.position.y - py;
             x_veh[i] = dx * costheta + dy * sintheta;
             y_veh[i] = dy * costheta - dx * sintheta;
-            //cout << "x_veh : " << x_veh[i]<< ", y_veh: " << y_veh[i] << endl;
         }
 
         // Fit waypoints
         auto coeffs = polyfit(x_veh, y_veh, 3); 
         const double cte  = polyeval(coeffs, 0.0);
-        // cout << "coeffs : " << coeffs[0] << endl;
-        // cout << "pow : " << pow(0.0 ,0) << endl;
-        // cout << "cte : " << cte << endl;
         double etheta = atan(coeffs[1]);
 
         // Global coordinate system about theta
@@ -606,14 +567,12 @@ namespace mpc_ros{
             etheta = temp_theta - traj_deg;
         else
             etheta = 0;  
-        // cout << "etheta: "<< etheta << ", atan2(gy,gx): " << atan2(gy,gx) << ", temp_theta:" << traj_deg << endl;
 
         // Difference bewteen current position and goal position
         const double x_err = goal_pose.pose.position.x -  robot_pose.x;
         const double y_err = goal_pose.pose.position.y -  robot_pose.y;
         const double goal_err = sqrt(x_err*x_err + y_err*y_err);
 
-        // cout << "x_err:"<< x_err << ", y_err:"<< y_err  << endl;
 
         VectorXd state(6);
         if(_delay_mode)
@@ -638,7 +597,7 @@ namespace mpc_ros{
         ros::Time begin = ros::Time::now();
         vector<double> mpc_results = _mpc.Solve(state, coeffs);    
         ros::Time end = ros::Time::now();
-        cout << "[MPCPlannerROS] MPC Solver cycle time: " << end.sec - begin.sec << "." << end.nsec - begin.nsec << endl; // << begin.sec<< "."  << begin.nsec << endl;
+        ROS_WARN("[MPCPlannerROS] MPC Solver cycle time: %d.%.5f",(end.sec - begin.sec), (end.nsec - begin.nsec));
             
         // MPC result (all described in car frame), output = (acceleration, w)        
         _w = mpc_results[0]; // radian/sec, angular velocity
@@ -653,17 +612,13 @@ namespace mpc_ros{
 
         if(_debug_info)
         {
-            cout << "\n\nDEBUG" << endl;
-            cout << "theta: " << theta << endl;
-            cout << "V: " << v << endl;
-            //cout << "odom_path: \n" << odom_path << endl;
-            //cout << "x_points: \n" << x_veh << endl;
-            //cout << "y_points: \n" << y_veh << endl;
-            cout << "coeffs: \n" << coeffs << endl;
-            cout << "_w: \n" << _w << endl;
-            cout << "_throttle: \n" << _throttle << endl;
-            cout << "_speed: \n" << _speed << endl;
-            cout << "_dt: \n" << _dt << endl;
+            ROS_WARN("[MPCPlannerROS] \n\nDEBUG");
+            ROS_WARN("[MPCPlannerROS] theta: %.4f",theta);
+            ROS_WARN("[MPCPlannerROS] V: %.4f",v);
+            ROS_WARN("[MPCPlannerROS] _w: \n" << _w << endl;
+            ROS_WARN("[MPCPlannerROS] _throttle: \n" << _throttle << endl;
+            ROS_WARN("[MPCPlannerROS] _speed: \n" << _speed << endl;
+            ROS_WARN("[MPCPlannerROS] _dt: \n" << _dt << endl;
         }
         // Display the MPC predicted trajectory
         _mpc_traj = nav_msgs::Path();
