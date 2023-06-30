@@ -91,8 +91,7 @@ namespace mpc_ros{
                 costmap_2d::Costmap2DROS* costmap_ros);
 
             // for visualisation, publishers of global and local plan
-            ros::Publisher g_plan_pub_, l_plan_pub_, mpc_status_pub_;
-            ros::Publisher g_plan_pub_isGoalReached, g_plan_pub_mpc_ok, g_plan_pub_empty;
+            ros::Publisher _pub_g_plan, _pub_l_plan, _pub_mpc_status;
             std::string _driving_status;
 
             void publishLocalPlan(std::vector<geometry_msgs::PoseStamped>& path);
@@ -153,7 +152,6 @@ namespace mpc_ros{
             base_local_planner::SimpleScoredSamplingPlanner scored_sampling_planner_;
             dynamic_reconfigure::Server<MPCPlannerConfig> *dsrv_;
             void reconfigureCB(MPCPlannerConfig &config, uint32_t level);
-            void getMapFramePath(std::vector<geometry_msgs::PoseStamped>& map_frame_path);
             void globalPlanCB(const nav_msgs::Path& path); 
             void feedbackVelCB(const geometry_msgs::Twist& feedback);
             void robotPoseCB(const cai_msgs::RobotState& robot_pose);
@@ -173,7 +171,7 @@ namespace mpc_ros{
             ros::NodeHandle _nh;
             // ros::Subscriber _sub_odom;
             ros::Subscriber _globalPlanCB, _feedbackVelCB, _robotPoseCB;
-            ros::Publisher _pub_odompath, _pub_mpctraj, _pub_odompath_withoutdownsampling, _pub_start_odom_path, _pub_end_odom_path;
+            ros::Publisher _pub_odompath, _pub_mpctraj, _pub_odompath_withoutdownsampling;
             tf2_ros::Buffer *tf_;  ///
             
             nav_msgs::Odometry _odom;
