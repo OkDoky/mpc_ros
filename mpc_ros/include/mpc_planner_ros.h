@@ -165,7 +165,7 @@ namespace mpc_ros{
             double _safety_speed;
             int _downSampling;
             bool _delay_mode;
-            bool latch_xy_goal_tolerance_, latch_yaw_goal_tolerance_;
+            bool latch_xy_goal_tolerance_, latch_yaw_goal_tolerance_, set_new_goal_;
             double polyeval(Eigen::VectorXd coeffs, double x);
             Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order);
     };

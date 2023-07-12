@@ -82,6 +82,7 @@ namespace mpc_ros{
 
         latch_xy_goal_tolerance_ = false;
         latch_yaw_goal_tolerance_ = false;
+        set_new_goal_ = false;
         
         dsrv_ = new dynamic_reconfigure::Server<MPCPlannerConfig>(private_nh);
         dynamic_reconfigure::Server<MPCPlannerConfig>::CallbackType cb = boost::bind(&MPCPlannerROS::reconfigureCB, this, _1, _2);
@@ -135,11 +136,30 @@ namespace mpc_ros{
             ROS_ERROR("This planner has not been initialized, please call initialize() before using this planner");
             return false;
         }
-        // LoadParams();
+        set_new_goal_ = true;
         planner_util_.setPlan(orig_global_plan);
-        if (tracking_state_->getContext() == "ReachedAndIdle"){
-            context->transitionTo(RotateBeforeTracking_);
-            tracking_state_ = context;
+        geometry_msgs::PoseStamped global_pose;
+        geometry_msgs::Twist feedback_vel;
+        std::vector<geometry_msgs::PoseStamped> global_plan;
+        std::vector<geometry_msgs::PoseStamped> cutoff_plan;
+        geometry_msgs::PoseStamped goal_pose;
+        bool isUpdated = updateInputs(global_pose, feedback_vel, goal_pose, global_plan, cutoff_plan);
+
+        if(!isPositionReached(global_pose, goal_pose)){
+            if(!isBelowErrorTheta(global_pose, cutoff_plan)){
+                ROS_WARN("[MPCPlannerROS] setPlan, set to rotate before tracking");
+                context->transitionTo(RotateBeforeTracking_);
+                tracking_state_ = context;
+            }else{
+                ROS_WARN("[MPCPlannerROS] setPlan, set to tracking");
+                context->transitionTo(Tracking_);
+                tracking_state_ = context;
+            }
+        }else{
+            ROS_WARN("[MPCPlannerROS] setPlan, set to stop and rotate, cause isPositionReached.., goal pose : (%.4f,%.4f), global pose : (%.4f,%.4f)",
+                goal_pose.pose.position.x, goal_pose.pose.position.y, global_pose.pose.position.x, global_pose.pose.position.y);
+            context->transitionTo(StopAndRotate_);
+            tracking_state_ = context;            
         }
         return true;
         
@@ -161,11 +181,18 @@ namespace mpc_ros{
     bool MPCPlannerROS::isPositionReached(const geometry_msgs::PoseStamped& global_pose,
                                           const geometry_msgs::PoseStamped& goal_pose){
         // check to see if we've reached the gaol position
-        if (latch_xy_goal_tolerance_ || getGoalPositionDistance(global_pose, goal_pose) <= planner_util_.getCurrentLimits().xy_goal_tolerance){
-            latch_xy_goal_tolerance_ = true;
+        bool isReached = getGoalPositionDistance(global_pose, goal_pose) <= planner_util_.getCurrentLimits().xy_goal_tolerance;
+        if (!set_new_goal_ && latch_xy_goal_tolerance_){
             return true;
+        }else if(set_new_goal_ && latch_xy_goal_tolerance_){
+            set_new_goal_ = false;
+            latch_xy_goal_tolerance_ = getGoalPositionDistance(global_pose, goal_pose) <= planner_util_.getCurrentLimits().xy_goal_tolerance;
+            return latch_xy_goal_tolerance_;
+        }else{
+            set_new_goal_ = false;
+            latch_xy_goal_tolerance_ = getGoalPositionDistance(global_pose, goal_pose) <= planner_util_.getCurrentLimits().xy_goal_tolerance;
+            return latch_xy_goal_tolerance_;
         }
-        return false;
     }
 
     bool MPCPlannerROS::isGoalReached(){
@@ -269,16 +296,22 @@ namespace mpc_ros{
                                      std::vector<geometry_msgs::PoseStamped>& global_plan,
                                      std::vector<geometry_msgs::PoseStamped>& cutoff_plan){
         bool isUpdated;
+        bool essentialIsUpdated;
         std::string cur_state = tracking_state_->getContext();
         getRobotVel(feedback_vel);
-        isUpdated = getRobotPose(global_pose);
-        isUpdated &= planner_util_.getGoal(goal_pose);
-        if (cur_state == "StopAndRotate" || cur_state == "ReachedAndIdle"){
-            return isUpdated;
-        }
+        essentialIsUpdated = getRobotPose(global_pose);
+        essentialIsUpdated &= planner_util_.getGoal(goal_pose);
+        isUpdated = essentialIsUpdated;
         isUpdated &= planner_util_.getLocalPlan(global_pose, global_plan);
         cutoff_plan = global_plan;
-        isUpdated &= getCutOffPlan(global_pose, cutoff_plan);
+        if (!cutoff_plan.empty()){
+            isUpdated &= getCutOffPlan(global_pose, cutoff_plan);
+        }else{
+            isUpdated &= false;
+        }
+        if (cur_state == "StopAndRotate" || cur_state == "ReachedAndIdle"){
+            return essentialIsUpdated;
+        }
         return isUpdated;
     }
     
