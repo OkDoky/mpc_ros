@@ -86,8 +86,9 @@ catkin_package(
 
 # MPC Local planner plugin
 add_library(mpc_ros 
-  src/mpc_plannner_ros.cpp 
-  src/mpc_plannner.cpp)
+  src/mpc_planner_ros.cpp 
+  src/mpc_planner.cpp
+  src/driving_state.cpp)
 add_dependencies(mpc_ros mpc_ros_gencfg)
 
 
