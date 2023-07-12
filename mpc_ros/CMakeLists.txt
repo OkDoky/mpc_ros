@@ -17,15 +17,12 @@ find_package(catkin REQUIRED
     geometry_msgs
     nav_msgs
     pluginlib
-    message_generation
     move_base
     base_local_planner
     roscpp
-    rospy
     std_msgs
     tf
     visualization_msgs
-    cai_msgs
   )
 find_package(Boost REQUIRED
   COMPONENTS
@@ -51,19 +48,16 @@ catkin_package(
   INCLUDE_DIRS include
   LIBRARIES 
     mpc_ros
-    odom_helper
   CATKIN_DEPENDS 
     costmap_2d 
     dynamic_reconfigure 
     geometry_msgs 
     move_base 
     roscpp 
-    rospy 
     std_msgs 
     tf 
     visualization_msgs 
     pluginlib
-    cai_msgs
 )
 
 ###########
@@ -92,12 +86,11 @@ catkin_package(
 
 # MPC Local planner plugin
 add_library(mpc_ros 
-  src/mpc_plannner_ros.cpp 
-  src/mpc_plannner.cpp)
+  src/mpc_planner_ros.cpp 
+  src/mpc_planner.cpp
+  src/driving_state.cpp)
 add_dependencies(mpc_ros mpc_ros_gencfg)
 
-add_library(odom_helper
-  src/odometry_helper_ros.cpp)
 
 # TARGET_LINK_LIBRARIES(
 #   mpc_ros 
@@ -105,11 +98,11 @@ add_library(odom_helper
 #   ${catkin_LIBRARIES}
 #   )
 
-target_link_libraries(mpc_ros ipopt odom_helper
+target_link_libraries(mpc_ros ipopt
   ${catkin_LIBRARIES}
   )
 target_link_libraries(mpc_ros
-odom_helper)
+)
 #############
 ## Example ##
 #############

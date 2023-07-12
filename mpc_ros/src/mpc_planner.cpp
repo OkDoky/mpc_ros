@@ -14,7 +14,7 @@
  *
  */
 
-#include "mpc_plannner.h"
+#include "mpc_planner.h"
 //#include <cppad/cppad.hpp>
 #include <cppad/ipopt/solve.hpp>
 #include <Eigen/Core>
@@ -107,17 +107,17 @@ class FG_eval
             cost_etheta = 0;
             cost_vel = 0;
 
-            /*
-            for (int i = 0; i < _mpc_steps; i++) 
-            {
-                cout << i << endl;
-                cout << "_x_start" << vars[_x_start + i] <<endl;
-                cout << "_y_start" << vars[_y_start + i] <<endl;
-                cout << "_theta_start" << vars[_theta_start + i] <<endl;
-                cout << "_v_start" << vars[_v_start + i] <<endl;
-                cout << "_cte_start" << vars[_cte_start + i] <<endl;
-                cout << "_etheta_start" << vars[_etheta_start + i] <<endl;
-            }*/
+            
+            // for (int i = 0; i < _mpc_steps; i++) 
+            // {
+            //     cout << i << endl;
+            //     cout << "_x_start" << vars[_x_start + i] <<endl;
+            //     cout << "_y_start" << vars[_y_start + i] <<endl;
+            //     cout << "_theta_start" << vars[_theta_start + i] <<endl;
+            //     cout << "_v_start" << vars[_v_start + i] <<endl;
+            //     cout << "_cte_start" << vars[_cte_start + i] <<endl;
+            //     cout << "_etheta_start" << vars[_etheta_start + i] <<endl;
+            // }
 
             for (int i = 0; i < _mpc_steps; i++) 
             {
@@ -366,7 +366,6 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
     // NOTE: Currently the solver has a maximum time limit of 0.5 seconds.
     // Change this as you see fit.
     options += "Numeric max_cpu_time          0.5\n";
-
     // place to return solution
     CppAD::ipopt::solve_result<Dvector> solution;
 
