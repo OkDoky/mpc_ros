@@ -22,6 +22,7 @@
   <build_depend>base_local_planner</build_depend>
   <build_depend>visualization_msgs</build_depend>
   <build_depend>pluginlib</build_depend>
+  <build_depend>quintic_polynomials_planner_ros</build_depend>
   <build_export_depend>costmap_2d</build_export_depend>
   <build_export_depend>dynamic_reconfigure</build_export_depend>
   <build_export_depend>geometry_msgs</build_export_depend>
@@ -32,6 +33,7 @@
   <build_export_depend>tf</build_export_depend>
   <build_export_depend>visualization_msgs</build_export_depend>
   <build_export_depend>base_local_planner</build_export_depend>
+  <build_export_depend>quintic_polynomials_planner_ros</build_export_depend>
   <exec_depend>costmap_2d</exec_depend>
   <exec_depend>dynamic_reconfigure</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
@@ -43,6 +45,7 @@
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>base_local_planner</exec_depend>
   <exec_depend>pluginlib</exec_depend>
+  <exec_depend>quintic_polynomials_planner_ros</exec_depend>
 
   <exec_depend>nav_core</exec_depend>
 
