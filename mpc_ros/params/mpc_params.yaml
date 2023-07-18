@@ -1,26 +1,52 @@
-# Parameters for control loop
-pub_twist_cmd: true
-debug_info: false
-delay_mode: true
-max_speed: 0.5 # unit: m/s 
-waypoints_dist: -1.0 # unit: m, set < 0 means computed by node
-path_length: 5.0 # unit: m
-goal_radius: 0.5 # unit: m
-controller_freq: 10
+MPCPlannerROS:
+# Robot Configuration Parameters
+  max_vel_trans: 0.6
+  min_vel_trans: 0.01
+  
+  max_vel_x: 0.6
+  min_vel_x: -0.05
 
-# Parameter for MPC solver
-mpc_steps: 20.0
-mpc_ref_cte: 0.0
-mpc_ref_vel: 0.5
-mpc_ref_etheta: 0.0
-mpc_w_cte: 100.0
-mpc_w_etheta: 0000.0
-mpc_w_vel: 1000.0
-mpc_w_angvel: 100.0
-mpc_w_angvel_d: 0.0
-mpc_w_accel: 50.0
-mpc_w_accel_d: 0.0
-mpc_max_angvel: 1.5 
-mpc_max_throttle: 1.0 # Maximal throttle accel
-mpc_bound_value: 1.0e3 # Bound value for other variables
+  max_vel_y: 0.0
+  min_vel_y: 0.0
 
+  max_vel_theta: 0.4
+  min_vel_theta: 0.4
+
+  acc_lim_x: 2.0
+  acc_lim_y: 0.0
+  acc_lim_theta: 3.0
+  acc_lim_trans: 0.1
+
+  prune_plan: false # move_base global planner prune plan param.., default false..
+
+  xy_goal_tolerance: 0.05
+  yaw_goal_tolerance: 0.05
+
+  trans_stopped_vel: 0.01
+  theta_stopped_vel: 0.1
+
+# Param for MPC Solver
+  debug_info: true
+  delay_mode: true
+
+  max_speed: 0.8 # unit: m/s #0.8
+  default_max_speed : 0.8
+  waypoints_dist: -1.0 # unit: m, set < 0 means computed by node
+  path_length: 5.0 # unit: m
+  controller_freq: 10.0
+  steps: 20.0
+  
+  ref_cte: 0.0
+  ref_vel: 0.8 #1.0
+  ref_etheta: 0.1
+
+  w_cte: 3000
+  w_etheta: 200
+  w_vel: 1000 #100.0
+  w_angvel: 10 #100.0
+  w_accel: 200
+  w_accel_d: 0.01
+
+  max_angvel: 0.6 #2.5 #1.0
+  max_throttle: 0.5 # Maximal throttle accel
+  bound_value: 20.0 # Bound value for other variables
