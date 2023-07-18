@@ -2,14 +2,12 @@
 #define DRIVING_STATE_CONTEXT_H
 
 // default functions
-// #include <iostream>
-// #include <typeinfo>
-// #include <Eigen/Core>
-// #include <Eigen/QR>
+#include <iostream>
+#include <typeinfo>
 #include <Eigen/Dense>
 #include <map>
-// #include <cmath>
-// #include <math.h>
+#include <cmath>
+#include <math.h>
 
 // ros
 #include "ros/ros.h"
@@ -73,6 +71,7 @@ class DrivingStateContext {
             _max_angvel, _max_throttle, _bound_value;
         double _min_speed;
         bool _delay_mode, _debug_info;
+        bool is_deceleration_;
         std::map<std::string, double> mpc_params_;
         DrivingStateContext() : state_(nullptr) {};
         DrivingStateContext(DrivingState *state);
