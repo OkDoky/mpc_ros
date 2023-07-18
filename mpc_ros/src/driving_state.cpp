@@ -39,6 +39,9 @@ void DrivingStateContext::transitionTo(DrivingState *state) {
   }
   this->state_ = state;
   this->state_->set_context(this);
+  this->mpc_params_["REF_V"] = this->_max_speed;
+  this->_mpc.LoadParams(this->mpc_params_);
+  this->is_deceleration_ = false;
   std::cout << "[DrivingStateContext] current state : " << this->state_->getContextName() << std::endl;
 }
 
@@ -133,9 +136,11 @@ void Tracking::deceleration(const geometry_msgs::PoseStamped& global_pose,
     } else if(speed < this->context_->_min_speed){
       this->context_->mpc_params_["REF_V"] = this->context_->_min_speed;
       this->context_->_mpc.LoadParams(this->context_->mpc_params_);
+      this->context_->is_deceleration_ = true;
     } else {
       this->context_->mpc_params_["REF_V"] = speed;
       this->context_->_mpc.LoadParams(this->context_->mpc_params_);
+      this->context_->is_deceleration_ = true;
     }
   }
 }
@@ -146,14 +151,11 @@ bool RotateBeforeTracking::mpcComputeVelocityCommands(geometry_msgs::Twist& cmd_
   const geometry_msgs::Twist& feedback_vel,
   const std::vector<geometry_msgs::PoseStamped>& ref_plan) {
   
-  this->context_->mpc_params_["REF_V"] = this->context_->_max_speed;
-  this->context_->_mpc.LoadParams(this->context_->mpc_params_);
   double yaw = tf2::getYaw(global_pose.pose.orientation);
   double path_direction = tf2::getYaw(ref_plan[0].pose.orientation);
   double etheta = path_direction - yaw;
   etheta = normalizeAngle(etheta, -M_PI, M_PI);
-  double theta_ref = 0.5;
-  cmd_vel.angular.z = etheta * theta_ref;
+  cmd_vel.angular.z = etheta;
   return true;
 }
 
@@ -167,8 +169,7 @@ bool StopAndRotate::mpcComputeVelocityCommands(geometry_msgs::Twist& cmd_vel,
   double goal_direction = tf2::getYaw(goal_pose.pose.orientation);
   double etheta = goal_direction - yaw;
   etheta = normalizeAngle(etheta, -M_PI, M_PI);
-  double theta_ref = 0.5;
-  cmd_vel.angular.z = etheta * theta_ref;
+  cmd_vel.angular.z = etheta;
   return true;
 }
 
