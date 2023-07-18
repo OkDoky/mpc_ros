@@ -24,14 +24,7 @@
 #include <nav_core/base_local_planner.h>
 #include <base_local_planner/trajectory.h>
 #include <base_local_planner/local_planner_util.h>
-// #include <base_local_planner/latched_stop_rotate_controller.h>
 #include <base_local_planner/goal_functions.h>
-// #include <base_local_planner/simple_trajectory_generator.h>
-// #include <base_local_planner/simple_scored_sampling_planner.h>
-// #include <base_local_planner/oscillation_cost_function.h>
-// #include <base_local_planner/map_grid_cost_function.h>
-// #include <base_local_planner/obstacle_cost_function.h>
-// #include <base_local_planner/twirling_cost_function.h>
 // local planner specific classes which provide some macros
 #include <costmap_2d/costmap_2d_ros.h>
 #include <dynamic_reconfigure/server.h>
@@ -40,6 +33,8 @@
 #include "ros/ros.h"
 #include "mpc_planner.h"
 #include "driving_state.h"
+#include "local_goal_maker.h"
+#include <quintic_polynomials_planner_ros/quintic_polynomial.h>
 #include <iostream>
 #include <cmath>
 #include <math.h>
@@ -52,6 +47,7 @@
 #include <nav_msgs/Path.h>
 #include <nav_msgs/Odometry.h>
 #include <std_msgs/String.h>
+#include <std_msgs/Float32MultiArray.h>
 #include <fstream>
 #include <Eigen/QR>
 
@@ -65,8 +61,8 @@ namespace mpc_ros{
             MPCPlannerROS();
             ~MPCPlannerROS();
             MPCPlannerROS(std::string name, 
-                          tf2_ros::Buffer* tf,
-                          costmap_2d::Costmap2DROS* costmap_ros);
+                    tf2_ros::Buffer* tf,
+                    costmap_2d::Costmap2DROS* costmap_ros);
 
             // Local planner plugin functions
             void initialize(std::string name, tf2_ros::Buffer* tf, costmap_2d::Costmap2DROS* costmap_ros);
@@ -77,58 +73,77 @@ namespace mpc_ros{
         private:            
             void publishLocalPlan(std::vector<geometry_msgs::PoseStamped>& path);
             void publishGlobalPlan(std::vector<geometry_msgs::PoseStamped>& path);
-            
+            void publishGlobalPrunedPlan(std::vector<geometry_msgs::PoseStamped>& path);
+            void publishLocalPrunedPlan(std::vector<geometry_msgs::PoseStamped>& path);
+
             bool getRobotPose(geometry_msgs::PoseStamped& robot_pose);
             
             void getRobotVel(geometry_msgs::Twist& feedback_vel);
             bool updateInputs(geometry_msgs::PoseStamped& global_pose,
-                              geometry_msgs::Twist& feedback_vel,
-                              geometry_msgs::PoseStamped& goal_pose,
-                              std::vector<geometry_msgs::PoseStamped>& global_plan,
-                              std::vector<geometry_msgs::PoseStamped>& cutoff_plan);
+                    geometry_msgs::Twist& feedback_vel,
+                    geometry_msgs::PoseStamped& goal_pose,
+                    std::vector<geometry_msgs::PoseStamped>& global_plan,
+                    std::vector<geometry_msgs::PoseStamped>& pruned_plan,
+                    std::vector<geometry_msgs::PoseStamped>& local_plan);
             void checkStates(std::string& state_str,
-                             const geometry_msgs::PoseStamped& global_pose,
-                             const geometry_msgs::Twist& feedback_vel,
-                             const geometry_msgs::PoseStamped& goal_pose,
-                             const std::vector<geometry_msgs::PoseStamped>& cutoff_plan);
+                    const geometry_msgs::PoseStamped& global_pose,
+                    const geometry_msgs::Twist& feedback_vel,
+                    const geometry_msgs::PoseStamped& goal_pose,
+                    const std::vector<geometry_msgs::PoseStamped>& local_plan);
             void downSamplePlan(std::vector<geometry_msgs::PoseStamped>& down_sampled_plan,
-                                const std::vector<geometry_msgs::PoseStamped>& cutoff_plan);
+                    const std::vector<geometry_msgs::PoseStamped>& ref_plan);
             bool isPositionReached(const geometry_msgs::PoseStamped& global_pose,
-                                   const geometry_msgs::PoseStamped& goal_pose);
+                    const geometry_msgs::PoseStamped& goal_pose);
             bool isGoalReached(const geometry_msgs::PoseStamped& global_pose,
-                               const geometry_msgs::PoseStamped& goal_pose,
-                               const geometry_msgs::Twist& feedback_vel);
+                    const geometry_msgs::PoseStamped& goal_pose,
+                    const geometry_msgs::Twist& feedback_vel);
             bool isBelowErrorTheta(const geometry_msgs::PoseStamped& global_pose,
-                                   const std::vector<geometry_msgs::PoseStamped>& cutoff_plan);
+                    const std::vector<geometry_msgs::PoseStamped>& pruned_plan);
             bool isInitialized() {return _initialized;}
-            bool getCutOffPlan(const geometry_msgs::PoseStamped& global_pose,
-                               std::vector<geometry_msgs::PoseStamped>& cutoff_plan);
+            bool getGlobalPlan(const geometry_msgs::PoseStamped& global_pose,
+                    std::vector<geometry_msgs::PoseStamped>& global_plan);
+            bool getLocalPlan(const geometry_msgs::PoseStamped& global_pose,
+                    const geometry_msgs::PoseStamped& local_goal,
+                    const geometry_msgs::Twist& feedback_vel,
+                    const std::vector<geometry_msgs::PoseStamped>& global_plan,
+                    const bool free_target_vector,
+                    std::vector<geometry_msgs::PoseStamped>& local_plan);
+            bool getPrunedPlan(const geometry_msgs::PoseStamped& global_pose,
+                    std::vector<geometry_msgs::PoseStamped>& pruned_plan);
             void reconfigureCB(MPCPlannerConfig &config, uint32_t level);
             void feedbackVelCB(const geometry_msgs::Twist& feedback);
+            void subPlanAgentOutputCB(const std_msgs::Float32MultiArray& output);
 
             inline double getGoalPositionDistance(const geometry_msgs::PoseStamped& global_pose, 
-                                                  const geometry_msgs::PoseStamped& goal_pose){
+                    const geometry_msgs::PoseStamped& goal_pose){
                 return hypot(goal_pose.pose.position.x - global_pose.pose.position.x, 
                             goal_pose.pose.position.y - global_pose.pose.position.y);
             }
             inline double getGoalOrientationAngleDifference(const geometry_msgs::PoseStamped& global_pose,
-                                                            double goal_th){
+                    double goal_th){
                 double yaw = normalizeAngle(tf2::getYaw(global_pose.pose.orientation), -M_PI, M_PI);
                 goal_th = normalizeAngle(goal_th, -M_PI, M_PI);
                 return normalizeAngle(angles::shortest_angular_distance(yaw, goal_th), -M_PI, M_PI);
             }
             inline bool stopped(const geometry_msgs::Twist& feedback_vel,
-                                const double rot_stopped_vel,
-                                const double trans_stopped_vel){
+                    const double rot_stopped_vel,
+                    const double trans_stopped_vel){
                 return fabs(feedback_vel.linear.x) <= trans_stopped_vel
                         && fabs(feedback_vel.angular.z) <= rot_stopped_vel;
+            }
+            inline double getSignedCte(const geometry_msgs::PoseStamped& p1,
+                    const geometry_msgs::PoseStamped& p2){
+                
+                double yaw = tf2::getYaw(p1.pose.orientation);
+                double dx = p2.pose.position.x - p1.pose.position.x;
+                double dy = p2.pose.position.y - p1.pose.position.y;
+                return (-dx*sin(yaw) + dy*cos(yaw));
             }
 
             // init driving state object.
             DrivingStateContext* context = new DrivingStateContext;
             DrivingStateContext *tracking_state_;
             Tracking* Tracking_ = new Tracking(context);
-            // Deceleration* Deceleration_ = new Deceleration(context);
             RotateBeforeTracking* RotateBeforeTracking_ = new RotateBeforeTracking(context);
             StopAndRotate* StopAndRotate_ = new StopAndRotate(context);
             ReachedAndIdle* ReachedAndIdle_ = new ReachedAndIdle(context);
@@ -140,31 +155,36 @@ namespace mpc_ros{
             geometry_msgs::Twist _feedback_vel;
       
             base_local_planner::LocalPlannerUtil planner_util_;
-            
             dynamic_reconfigure::Server<MPCPlannerConfig> *dsrv_;
+            
+            QuinticPolynomialsPlanner quintic_poly_planner_;
+            LocalGoalMaker local_goal_maker_;
+
             // Flags
             bool _initialized;
 
         private:
             // init rosnode handler & Publisher & Subscribers
             ros::NodeHandle _nh;
-            ros::Subscriber _feedbackVelCB;
-            ros::Publisher _pub_mpc_ref, _pub_mpc_traj;
-            ros::Publisher _pub_g_plan, _pub_l_plan;
+            ros::Subscriber feedbackVelCB_;
+            ros::Subscriber subPlanAgentOutput_;
+            ros::Publisher pub_mpc_ref_, pub_mpc_traj_;
+            ros::Publisher pub_g_plan_, pub_l_plan_;
+            ros::Publisher pub_g_pruned_plan_, pub_l_pruned_plan_;
+            ros::Publisher pub_pruned_first_point_;
 
+            // global plan & local plans
+            std::vector<geometry_msgs::PoseStamped> global_plan_;
+            std::vector<geometry_msgs::PoseStamped> pruned_plan_;
+            std::vector<geometry_msgs::PoseStamped> local_plan_;
             // init tf2 buffer
             tf2_ros::Buffer *tf_;
             
-            map<string, double> mpc_params__mpc_params;
-            double _mpc_steps, _ref_cte, _ref_etheta, _ref_vel, _w_cte, _w_etheta, _w_vel, 
-                _w_angvel, _w_accel, _w_angvel_d, _w_accel_d, _max_angvel, _max_throttle, _bound_value, 
-                heading_yaw_error_threshold_;
+            double heading_yaw_error_threshold_;
 
-            double _dt, _max_speed, _default_max_speed;
+            double _dt;
             double _pathLength, _waypointsDist;
-            double _safety_speed;
             int _downSampling;
-            bool _delay_mode;
             bool latch_xy_goal_tolerance_, latch_yaw_goal_tolerance_, set_new_goal_;
             double polyeval(Eigen::VectorXd coeffs, double x);
             Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order);
