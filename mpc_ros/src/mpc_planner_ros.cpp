@@ -48,7 +48,6 @@ namespace mpc_ros{
         global_frame_ = costmap_ros_->getGlobalFrameID();
         robot_base_frame_ = costmap_ros_->getBaseFrameID();
 
-        _safety_speed = 0.2;
         planner_util_.initialize(tf, costmap_, global_frame_);
         
         //Assuming this planner is being run within the navigation stack, we can
@@ -70,12 +69,16 @@ namespace mpc_ros{
         tracking_state_->updateControlFrequency(_dt);
 
         //Publishers and Subscribers
-        _pub_g_plan = private_nh.advertise<nav_msgs::Path>("global_plan", 1);
-        _pub_l_plan = private_nh.advertise<nav_msgs::Path>("local_plan", 1);
-        _pub_mpc_traj   = private_nh.advertise<nav_msgs::Path>("mpc_trajectory", 1);// MPC trajectory output
-        _pub_mpc_ref  = private_nh.advertise<nav_msgs::Path>("mpc_reference", 1); // reference path for MPC ///mpc_reference 
+        pub_g_plan_ = private_nh.advertise<nav_msgs::Path>("global_plan", 1);
+        pub_l_plan_ = private_nh.advertise<nav_msgs::Path>("local_plan", 1);
+        pub_mpc_traj_   = private_nh.advertise<nav_msgs::Path>("mpc_trajectory", 1);// MPC trajectory output
+        pub_mpc_ref_  = private_nh.advertise<nav_msgs::Path>("mpc_reference", 1); // reference path for MPC ///mpc_reference 
+        pub_g_pruned_plan_ = private_nh.advertise<nav_msgs::Path>("global_pruned_plan", 1);
+        pub_l_pruned_plan_ = private_nh.advertise<nav_msgs::Path>("local_pruned_plan", 1);
+        pub_pruned_first_point_ = private_nh.advertise<geometry_msgs::PoseStamped>("pruned_first_point",1);
 
-        _feedbackVelCB = _nh.subscribe("feedback_vel", 1, &MPCPlannerROS::feedbackVelCB, this);
+        feedbackVelCB_ = _nh.subscribe("feedback_vel", 1, &MPCPlannerROS::feedbackVelCB, this);
+        subPlanAgentOutput_ = _nh.subscribe("subPlanAgnet/output", 1, &MPCPlannerROS::subPlanAgentOutputCB, this);
         
         //Init variables
         heading_yaw_error_threshold_ = 0.1;
@@ -114,6 +117,9 @@ namespace mpc_ros{
 
         ROS_WARN("[MPCPlannerROS] update mpc config & planner utils");
         tracking_state_->updateMpcConfigs(config);
+        double max_speed = config.max_speed;
+        double max_throttle = config.max_throttle;
+        quintic_poly_planner_.initialize(max_speed, max_throttle);
 
         planner_util_.reconfigureCB(limits, false);
 
@@ -123,12 +129,25 @@ namespace mpc_ros{
         _feedback_vel = feedback;
     }
 
+    void MPCPlannerROS::subPlanAgentOutputCB(const std_msgs::Float32MultiArray& output){
+        local_goal_maker_.setCallBackInputs(output.data[0], output.data[1]);
+        ROS_WARN("[MPCPlannerROS] subplan agent output cb, length : %.3f, theta : %.3f", local_goal_maker_.getLength(), local_goal_maker_.getTheta());
+    }
+
     void MPCPlannerROS::publishLocalPlan(std::vector<geometry_msgs::PoseStamped>& path) {
-        base_local_planner::publishPlan(path, _pub_l_plan);
+        base_local_planner::publishPlan(path, pub_l_plan_);
     }
 
     void MPCPlannerROS::publishGlobalPlan(std::vector<geometry_msgs::PoseStamped>& path) {
-        base_local_planner::publishPlan(path, _pub_g_plan);
+        base_local_planner::publishPlan(path, pub_g_plan_);
+    }
+
+    void MPCPlannerROS::publishGlobalPrunedPlan(std::vector<geometry_msgs::PoseStamped>& path){
+        base_local_planner::publishPlan(path, pub_g_pruned_plan_);
+    }
+
+    void MPCPlannerROS::publishLocalPrunedPlan(std::vector<geometry_msgs::PoseStamped>& path){
+        base_local_planner::publishPlan(path, pub_l_pruned_plan_);
     }
   
     bool MPCPlannerROS::setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan){
@@ -138,26 +157,26 @@ namespace mpc_ros{
         }
         set_new_goal_ = true;
         planner_util_.setPlan(orig_global_plan);
+        global_plan_ = orig_global_plan;
+        pruned_plan_ = orig_global_plan;
+
         geometry_msgs::PoseStamped global_pose;
         geometry_msgs::Twist feedback_vel;
         std::vector<geometry_msgs::PoseStamped> global_plan;
-        std::vector<geometry_msgs::PoseStamped> cutoff_plan;
+        std::vector<geometry_msgs::PoseStamped> pruned_plan;
+        std::vector<geometry_msgs::PoseStamped> local_plan;
         geometry_msgs::PoseStamped goal_pose;
-        bool isUpdated = updateInputs(global_pose, feedback_vel, goal_pose, global_plan, cutoff_plan);
+        bool isUpdated = updateInputs(global_pose, feedback_vel, goal_pose, global_plan, pruned_plan, local_plan);
 
         if(!isPositionReached(global_pose, goal_pose)){
-            if(!isBelowErrorTheta(global_pose, cutoff_plan)){
-                ROS_WARN("[MPCPlannerROS] setPlan, set to rotate before tracking");
+            if(!isBelowErrorTheta(global_pose, pruned_plan)){
                 context->transitionTo(RotateBeforeTracking_);
                 tracking_state_ = context;
             }else{
-                ROS_WARN("[MPCPlannerROS] setPlan, set to tracking");
                 context->transitionTo(Tracking_);
                 tracking_state_ = context;
             }
         }else{
-            ROS_WARN("[MPCPlannerROS] setPlan, set to stop and rotate, cause isPositionReached.., goal pose : (%.4f,%.4f), global pose : (%.4f,%.4f)",
-                goal_pose.pose.position.x, goal_pose.pose.position.y, global_pose.pose.position.x, global_pose.pose.position.y);
             context->transitionTo(StopAndRotate_);
             tracking_state_ = context;            
         }
@@ -251,11 +270,11 @@ namespace mpc_ros{
     }
 
     bool MPCPlannerROS::isBelowErrorTheta(const geometry_msgs::PoseStamped& global_pose,
-                                          const std::vector<geometry_msgs::PoseStamped>& cutoff_plan){
-        if (cutoff_plan.size() == 0){
+                                          const std::vector<geometry_msgs::PoseStamped>& pruned_plan){
+        if (pruned_plan.size() == 0){
             return false;
         }
-        double path_direction = tf2::getYaw(cutoff_plan[0].pose.orientation);
+        double path_direction = tf2::getYaw(pruned_plan[0].pose.orientation);
         double error_theta = getGoalOrientationAngleDifference(global_pose, path_direction);
         if (fabs(error_theta) <= heading_yaw_error_threshold_){
             return true;
@@ -263,30 +282,49 @@ namespace mpc_ros{
         return false;
     }
 
-    bool MPCPlannerROS::getCutOffPlan(const geometry_msgs::PoseStamped& global_pose,
-                                      std::vector<geometry_msgs::PoseStamped>& cutoff_plan){
-        if (cutoff_plan.size() == 0){
-            ROS_ERROR("[PlannerUtils] plan size is 0");
+    bool MPCPlannerROS::getGlobalPlan(const geometry_msgs::PoseStamped& global_pose,
+            std::vector<geometry_msgs::PoseStamped>& global_plan){
+        return planner_util_.getLocalPlan(global_pose, global_plan);
+    }
+
+    bool MPCPlannerROS::getLocalPlan(const geometry_msgs::PoseStamped& global_pose,
+            const geometry_msgs::PoseStamped& local_goal,
+            const geometry_msgs::Twist& feedback_vel,
+            const std::vector<geometry_msgs::PoseStamped>& global_plan,
+            const bool free_target_vector,
+            std::vector<geometry_msgs::PoseStamped>& local_plan){
+        
+        quintic_poly_planner_.getPolynomialPlan(global_pose, local_goal, 
+                feedback_vel, global_plan, global_frame_, free_target_vector, local_plan);
+        if(local_plan.size() == 0){
             return false;
         }
-        std::vector<geometry_msgs::PoseStamped>::iterator it = cutoff_plan.begin();
+        return true;
+    }
+
+    bool MPCPlannerROS::getPrunedPlan(const geometry_msgs::PoseStamped& global_pose,
+                                      std::vector<geometry_msgs::PoseStamped>& pruned_plan){
+        
+        geometry_msgs::PoseStamped last_point = pruned_plan.back();
+        std::vector<geometry_msgs::PoseStamped>::iterator it = pruned_plan.begin();
         double max_distance_sq = 10e5;
-        double _rx = global_pose.pose.position.x;
-        double _ry = global_pose.pose.position.y;
-        while (it != cutoff_plan.end()){
+        double rx = global_pose.pose.position.x;
+        double ry = global_pose.pose.position.y;
+        while (it != pruned_plan.end()){
             const geometry_msgs::PoseStamped& w = *it;
-            double x_diff = _rx - w.pose.position.x;
-            double y_diff = _ry - w.pose.position.y;
+            double x_diff = rx - w.pose.position.x;
+            double y_diff = ry - w.pose.position.y;
             double distance_sq = x_diff * x_diff + y_diff * y_diff;
 
-            if (max_distance_sq < distance_sq){
+            if (max_distance_sq < distance_sq || it == pruned_plan.end()){
                 break;
             }
-            it = cutoff_plan.erase(it);
             max_distance_sq = distance_sq;
+            it = pruned_plan.erase(it);
         }
-        if (cutoff_plan.empty())
-            return false;
+        if (pruned_plan.empty()){
+            pruned_plan.push_back(last_point);
+        }
         return true;
     }
 
@@ -294,19 +332,41 @@ namespace mpc_ros{
                                      geometry_msgs::Twist& feedback_vel,
                                      geometry_msgs::PoseStamped& goal_pose,
                                      std::vector<geometry_msgs::PoseStamped>& global_plan,
-                                     std::vector<geometry_msgs::PoseStamped>& cutoff_plan){
+                                     std::vector<geometry_msgs::PoseStamped>& pruned_plan,
+                                     std::vector<geometry_msgs::PoseStamped>& local_plan){
+        // test
+        bool isLocalPlanUpdated, isGlobalPlanUpdated, isRobotPoseUpdated, isGoalPoseUpdated, isPrunedPlanUpdated;
         bool isUpdated;
         bool essentialIsUpdated;
         std::string cur_state = tracking_state_->getContext();
         getRobotVel(feedback_vel);
+
         essentialIsUpdated = getRobotPose(global_pose);
         essentialIsUpdated &= planner_util_.getGoal(goal_pose);
+        
         isUpdated = essentialIsUpdated;
-        isUpdated &= planner_util_.getLocalPlan(global_pose, global_plan);
-        cutoff_plan = global_plan;
-        if (!cutoff_plan.empty()){
-            isUpdated &= getCutOffPlan(global_pose, cutoff_plan);
+        isUpdated &= getGlobalPlan(global_pose, global_plan);
+
+        pruned_plan = global_plan;
+        if (!global_plan.empty()){
+            isUpdated &= getPrunedPlan(global_pose, pruned_plan);
+            
+            double plan_length = 0.0;
+            if (pruned_plan.size() >= 2){
+                plan_length = hypot(pruned_plan[0].pose.position.x-pruned_plan.back().pose.position.x,
+                                    pruned_plan[0].pose.position.y-pruned_plan.back().pose.position.y);
+            }
+            local_goal_maker_.setCte(getSignedCte(pruned_plan[0], global_pose));
+            if(plan_length <= local_goal_maker_.getApproximateSlope()){
+                isUpdated &= getLocalPlan(global_pose, goal_pose,
+                            feedback_vel, pruned_plan, true, local_plan);
+            }else{
+                isUpdated &= getLocalPlan(global_pose, 
+                            local_goal_maker_.getLocalGoal(pruned_plan[0], global_plan[0].pose.orientation),
+                            feedback_vel, pruned_plan, false, local_plan);
+            }
         }else{
+            ROS_WARN("[MPCPlannerROS] global plan is empty");
             isUpdated &= false;
         }
         if (cur_state == "StopAndRotate" || cur_state == "ReachedAndIdle"){
@@ -319,7 +379,7 @@ namespace mpc_ros{
                                     const geometry_msgs::PoseStamped& global_pose,
                                     const geometry_msgs::Twist& feedback_vel,
                                     const geometry_msgs::PoseStamped& goal_pose,
-                                    const std::vector<geometry_msgs::PoseStamped>& cutoff_plan){
+                                    const std::vector<geometry_msgs::PoseStamped>& local_plan){
         // state : Tracking, ReachedAndIdle, StopAndRotate, RotateBeforeTracking
         std::string prev_state = tracking_state_->getContext();
         bool position_reached_ = false;
@@ -330,7 +390,7 @@ namespace mpc_ros{
         if (position_reached_){
             goal_reached_ = isGoalReached(global_pose, goal_pose, feedback_vel);
         } else{
-            below_error_heading_yaw_ = isBelowErrorTheta(global_pose, cutoff_plan);
+            below_error_heading_yaw_ = isBelowErrorTheta(global_pose, local_plan);
         }
         if (goal_reached_){
             if(prev_state != std::string("ReachedAndIdle")){
@@ -363,35 +423,32 @@ namespace mpc_ros{
     }
 
     void MPCPlannerROS::downSamplePlan(std::vector<geometry_msgs::PoseStamped>& down_sampled_plan,
-                                       const std::vector<geometry_msgs::PoseStamped>& cutoff_plan){
+                                       const std::vector<geometry_msgs::PoseStamped>& ref_plan){
         nav_msgs::Path down_sampled_plan_;
-        //find waypoints distance
-        if(_waypointsDist <=0.0)
-        {        
-            double dx = cutoff_plan[1].pose.position.x - cutoff_plan[0].pose.position.x;
-            double dy = cutoff_plan[1].pose.position.y - cutoff_plan[0].pose.position.y;
-            _waypointsDist = hypot(dx,dy);
-            _downSampling = int(_pathLength/10.0/_waypointsDist);
-        }
-        int sampling = _downSampling;
 
-        // Cut and downsampling the path
-        for(int i = 0; i < cutoff_plan.size(); i++)
-        {
-            if(sampling == _downSampling)
-            {              
-                down_sampled_plan.push_back(cutoff_plan[i]);
-                down_sampled_plan_.poses.push_back(cutoff_plan[i]);
-                sampling = 0;
+        double dx, dy, dist;
+        dist = 0.0;
+        ros::Time planning_time_ = ros::Time::now();
+
+        for (unsigned int i = 1; i < ref_plan.size() - 1; i++){
+            dx = ref_plan[i].pose.position.x - ref_plan[i-1].pose.position.x;
+            dy = ref_plan[i].pose.position.y - ref_plan[i-1].pose.position.y;
+            dist += hypot(dx,dy);
+            if (dist >= 0.2){
+                dist = 0.0;
+                down_sampled_plan.push_back(ref_plan[i]);
+                down_sampled_plan.back().header.stamp = planning_time_;
+                down_sampled_plan.back().header.frame_id = global_frame_;
             }
-
-            sampling += 1;  
         }
-        down_sampled_plan.push_back(cutoff_plan.back());
-        down_sampled_plan_.poses.push_back(cutoff_plan.back());
+
+        down_sampled_plan.push_back(ref_plan.back());
+        down_sampled_plan.back().header.stamp = planning_time_;
+        down_sampled_plan.back().header.frame_id = global_frame_;
+        down_sampled_plan_.poses.push_back(ref_plan.back());
         down_sampled_plan_.header.frame_id = global_frame_;
         down_sampled_plan_.header.stamp = ros::Time::now();
-        _pub_mpc_ref.publish(down_sampled_plan_);
+        pub_mpc_ref_.publish(down_sampled_plan_);
     }
 
     bool MPCPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel){
@@ -400,30 +457,33 @@ namespace mpc_ros{
         geometry_msgs::PoseStamped global_pose;
         geometry_msgs::Twist feedback_vel;
         std::vector<geometry_msgs::PoseStamped> global_plan;
-        std::vector<geometry_msgs::PoseStamped> cutoff_plan;
+        std::vector<geometry_msgs::PoseStamped> pruned_plan;
+        std::vector<geometry_msgs::PoseStamped> local_plan;
         geometry_msgs::PoseStamped goal_pose;
-        if(!updateInputs(global_pose, feedback_vel, goal_pose, global_plan, cutoff_plan)){
+        if(!updateInputs(global_pose, feedback_vel, goal_pose, global_plan, pruned_plan, local_plan)){
             ROS_ERROR("[MPCPlannerROS] failed to update inputs");
             return false;
         }
         // publish updated plan
-        publishLocalPlan(cutoff_plan);
+        publishLocalPlan(local_plan);
         publishGlobalPlan(global_plan);
+        publishGlobalPrunedPlan(pruned_plan);
 
         std::string state_str;
-        checkStates(state_str, global_pose, feedback_vel, goal_pose, cutoff_plan);
+        checkStates(state_str, global_pose, feedback_vel, goal_pose, local_plan);
 
         // move_base finish job
         if (state_str == "ReachedAndIdle"){
             return true;
         }
+
+        // for tracking local plan
         std::vector<geometry_msgs::PoseStamped> ref_plan;
-        if (!cutoff_plan.empty()){
-            downSamplePlan(ref_plan, cutoff_plan);
+        if (!local_plan.empty()){
+            downSamplePlan(ref_plan, local_plan);
         }
         bool is_ok = tracking_state_->getCmd(cmd_vel, global_pose, goal_pose, feedback_vel, ref_plan);
-        if (is_ok && (tracking_state_->getContext() == std::string("Tracking")) ||
-                     (tracking_state_->getContext() == std::string("Deceleration"))){
+        if (is_ok && (tracking_state_->getContext() == std::string("Tracking"))){
             nav_msgs::Path mpc_traj;
             mpc_traj.header.frame_id = robot_base_frame_;
             mpc_traj.header.stamp = ros::Time::now();
@@ -442,7 +502,7 @@ namespace mpc_ros{
                 temp_pose.pose.orientation.w = quat_temp[3];
                 mpc_traj.poses.push_back(temp_pose);
             }
-            _pub_mpc_traj.publish(mpc_traj);
+            pub_mpc_traj_.publish(mpc_traj);
         }
         return is_ok;
     }
