@@ -20,6 +20,7 @@
 #include <vector>
 #include <map>
 #include <Eigen/Core>
+#include <stdexcept>
 // abstract class from which our plugin inherits
 #include <nav_core/base_local_planner.h>
 #include <base_local_planner/trajectory.h>
