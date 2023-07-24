@@ -111,9 +111,12 @@ bool Tracking::mpcComputeVelocityCommands(geometry_msgs::Twist& cmd_vel,
   const geometry_msgs::Twist& feedback_vel,
   const std::vector<geometry_msgs::PoseStamped>& ref_plan) {
   
+  std::cout << "[MPCPlannerROS] Tracking state start to mpcComputeVelocityCommands" << std::endl;
   this->deceleration(global_pose, goal_pose, feedback_vel);
+  std::cout << "[MPCPlannerROS] Tracking state, deceleration end" << std::endl;
   bool cost_ = this->findBestPath(global_pose, goal_pose, feedback_vel, ref_plan);
-  
+  std::cout << "[MPCPlannerROS] Tracking state, findBestPath done" << std::endl;
+
   if (cost_ >= 0){
     cmd_vel.linear.x = this->context_->_speed;
     cmd_vel.angular.z = this->context_->_w;
@@ -256,9 +259,11 @@ bool Tracking::findBestPath(const geometry_msgs::PoseStamped& global_pose,
     state << 0, 0, 0, v, cte, etheta;
   }
 
+  std::cout << "start to mpc solve" << std::endl;
   // Solve MPC Problem
   std::vector<double> mpc_results;
   mpc_results = this->context_->_mpc.Solve(state, coeffs);
+  std::cout << "end to mpc solve" << std::endl;
 
   // MPC result (all described in car frame), output = (acceleration, w)        
   this->context_->_w = mpc_results[0]; // radian/sec, angular velocity

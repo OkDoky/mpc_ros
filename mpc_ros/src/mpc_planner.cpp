@@ -107,18 +107,6 @@ class FG_eval
             cost_etheta = 0;
             cost_vel = 0;
 
-            
-            // for (int i = 0; i < _mpc_steps; i++) 
-            // {
-            //     cout << i << endl;
-            //     cout << "_x_start" << vars[_x_start + i] <<endl;
-            //     cout << "_y_start" << vars[_y_start + i] <<endl;
-            //     cout << "_theta_start" << vars[_theta_start + i] <<endl;
-            //     cout << "_v_start" << vars[_v_start + i] <<endl;
-            //     cout << "_cte_start" << vars[_cte_start + i] <<endl;
-            //     cout << "_etheta_start" << vars[_etheta_start + i] <<endl;
-            // }
-
             for (int i = 0; i < _mpc_steps; i++) 
             {
               fg[0] += _w_cte * CppAD::pow(vars[_cte_start + i] - _ref_cte, 2); // cross deviation error
@@ -129,24 +117,17 @@ class FG_eval
               cost_etheta +=  (_w_etheta * CppAD::pow(vars[_etheta_start + i] - _ref_etheta, 2)); 
               cost_vel +=  (_w_vel * CppAD::pow(vars[_v_start + i] - _ref_vel, 2)); 
             }
-            // cout << "-----------------------------------------------" <<endl;
-            // cout << "cost_cte, etheta, velocity: " << cost_cte << ", " << cost_etheta  << ", " << cost_vel << endl;
-            
 
             // Minimize the use of actuators.
             for (int i = 0; i < _mpc_steps - 1; i++) {
               fg[0] += _w_angvel * CppAD::pow(vars[_angvel_start + i], 2);
               fg[0] += _w_accel * CppAD::pow(vars[_a_start + i], 2);
             }
-            // cout << "cost of actuators: " << fg[0] << endl; 
-
             // Minimize the value gap between sequential actuations.
             for (int i = 0; i < _mpc_steps - 2; i++) {
               fg[0] += _w_angvel_d * CppAD::pow(vars[_angvel_start + i + 1] - vars[_angvel_start + i], 2);
               fg[0] += _w_accel_d * CppAD::pow(vars[_a_start + i + 1] - vars[_a_start + i], 2);
             }
-            // cout << "cost of gap: " << fg[0] << endl; 
-            
 
             // fg[x] for constraints
             // Initial constraints
@@ -257,8 +238,6 @@ void MPC::LoadParams(const std::map<string, double> &params)
     _etheta_start  = _cte_start + _mpc_steps;
     _angvel_start = _etheta_start + _mpc_steps;
     _a_start     = _angvel_start + _mpc_steps - 1;
-
-    // cout << "\n!! MPC Obj parameters updated !! " << endl; 
 }
 
 
@@ -370,33 +349,36 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
     CppAD::ipopt::solve_result<Dvector> solution;
 
     // solve the problem
+    std::cout << "start solve CppAD::ipopt::solve" << std::endl;
     CppAD::ipopt::solve<Dvector, FG_eval>(
       options, vars, vars_lowerbound, vars_upperbound, constraints_lowerbound,
       constraints_upperbound, fg_eval, solution);
-
+    std::cout << "end solve CppAD::ipopt::solve" << std::endl;
     // Check some of the solution values
     ok &= solution.status == CppAD::ipopt::solve_result<Dvector>::success;
+    std::cout << "end solve CppAD::ipopt::solve_result" << std::endl;
 
-    // Cost
+    // // Cost
     auto cost = solution.obj_value;
-    // std::cout << "------------ Total Cost(solution): " << cost << "------------" << std::endl;
-    // cout << "max_angvel:" << _max_angvel <<endl;
-    // cout << "max_throttle:" << _max_throttle <<endl;
- 
-    // cout << "-----------------------------------------------" <<endl;
+    // std::cout << "init cost" << std::endl;
 
     this->mpc_x = {};
     this->mpc_y = {};
     this->mpc_theta = {};
+    std::cout << "init mpc x,y,theta" << std::endl;
+    std::cout << "each start point : " << _x_start << ", " << _y_start << ", " << _theta_start << ", " << _mpc_steps << std::endl;
     for (int i = 0; i < _mpc_steps; i++) 
     {
+        std::cout << "solution x : " << i << "solution.x[x]" << solution.x.size() << std::endl;
         this->mpc_x.push_back(solution.x[_x_start + i]);
         this->mpc_y.push_back(solution.x[_y_start + i]);
         this->mpc_theta.push_back(solution.x[_theta_start + i]);
     }
+    std::cout << "end for mpc x,y,theta" << std::endl;
     
     vector<double> result;
     result.push_back(solution.x[_angvel_start]);
     result.push_back(solution.x[_a_start]);
+    std::cout << "end solve mpc solve" << std::endl;
     return result;
 }
