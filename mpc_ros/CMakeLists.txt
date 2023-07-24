@@ -4,9 +4,6 @@ project(mpc_ros)
 ## Compile as C++11, supported in ROS Kinetic and newer
 add_definitions(-std=c++11 -O3)
 
-# options for build configuration
-option(BUILD_EXAMPLE "Whether or not building the CppAD & Ipopt example" OFF) 
-
 find_package(catkin REQUIRED 
   COMPONENTS
     costmap_2d
@@ -30,11 +27,8 @@ find_package(Boost REQUIRED
 include_directories( 
   include
   ${catkin_INCLUDE_DIRS}
-  )
-include_directories(/usr/include)
-
-link_directories(/usr/lib)
-
+  /usr/local/include
+)
 
 # dynamic reconfigure
 generate_dynamic_reconfigure_options(
@@ -66,18 +60,10 @@ add_library(mpc_ros
   src/driving_state.cpp)
 add_dependencies(mpc_ros mpc_ros_gencfg)
 
-target_link_libraries(mpc_ros ipopt
+target_link_libraries(mpc_ros 
+  ipopt
   ${catkin_LIBRARIES}
-  )
-target_link_libraries(mpc_ros
-  ${catkin_INCLUDE_DIRS}
   quintic_polynomial_planner
+  /usr/local/lib
 )
 
-if(BUILD_EXAMPLE)
-    ADD_EXECUTABLE( CppAD_started example/CppAD_started.cpp )
-    TARGET_LINK_LIBRARIES(CppAD_started)
-    
-    ADD_EXECUTABLE( CppAD_Ipopt example/CppAD_Ipopt.cpp )
-    TARGET_LINK_LIBRARIES(CppAD_Ipopt ipopt)
-endif(BUILD_EXAMPLE)
