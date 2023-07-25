@@ -349,14 +349,11 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
     CppAD::ipopt::solve_result<Dvector> solution;
 
     // solve the problem
-    std::cout << "start solve CppAD::ipopt::solve" << std::endl;
     CppAD::ipopt::solve<Dvector, FG_eval>(
       options, vars, vars_lowerbound, vars_upperbound, constraints_lowerbound,
       constraints_upperbound, fg_eval, solution);
-    std::cout << "end solve CppAD::ipopt::solve" << std::endl;
     // Check some of the solution values
     ok &= solution.status == CppAD::ipopt::solve_result<Dvector>::success;
-    std::cout << "end solve CppAD::ipopt::solve_result" << std::endl;
 
     // // Cost
     auto cost = solution.obj_value;
@@ -365,20 +362,15 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
     this->mpc_x = {};
     this->mpc_y = {};
     this->mpc_theta = {};
-    std::cout << "init mpc x,y,theta" << std::endl;
-    std::cout << "each start point : " << _x_start << ", " << _y_start << ", " << _theta_start << ", " << _mpc_steps << std::endl;
     for (int i = 0; i < _mpc_steps; i++) 
     {
-        std::cout << "solution x : " << i << "solution.x[x]" << solution.x.size() << std::endl;
         this->mpc_x.push_back(solution.x[_x_start + i]);
         this->mpc_y.push_back(solution.x[_y_start + i]);
         this->mpc_theta.push_back(solution.x[_theta_start + i]);
     }
-    std::cout << "end for mpc x,y,theta" << std::endl;
     
     vector<double> result;
     result.push_back(solution.x[_angvel_start]);
     result.push_back(solution.x[_a_start]);
-    std::cout << "end solve mpc solve" << std::endl;
     return result;
 }
