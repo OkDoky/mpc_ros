@@ -113,6 +113,8 @@ class Tracking : public DrivingState {
             const geometry_msgs::PoseStamped& goal_pose,
             const geometry_msgs::Twist& feedback_vel,
             const std::vector<geometry_msgs::PoseStamped>& ref_plan);
+    private:
+        boost::mutex function_lock_;
 };
 
 class RotateBeforeTracking : public DrivingState {

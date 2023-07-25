@@ -142,12 +142,13 @@ namespace mpc_ros{
             }
 
             // init driving state object.
-            DrivingStateContext* context = new DrivingStateContext;
+            DrivingStateContext* context;
             DrivingStateContext *tracking_state_;
-            Tracking* Tracking_ = new Tracking(context);
-            RotateBeforeTracking* RotateBeforeTracking_ = new RotateBeforeTracking(context);
-            StopAndRotate* StopAndRotate_ = new StopAndRotate(context);
-            ReachedAndIdle* ReachedAndIdle_ = new ReachedAndIdle(context);
+            Tracking* Tracking_;
+            RotateBeforeTracking* RotateBeforeTracking_;
+            StopAndRotate* StopAndRotate_;
+            ReachedAndIdle* ReachedAndIdle_;
+            ReachedAndIdle* initialState;
 
             //Pointer to external objects (do NOT delete object)
             costmap_2d::Costmap2DROS* costmap_ros_; ///<@brief pointer to costmap  
@@ -180,6 +181,8 @@ namespace mpc_ros{
             std::vector<geometry_msgs::PoseStamped> local_plan_;
             // init tf2 buffer
             tf2_ros::Buffer *tf_;
+
+            boost::mutex configuration_mutex_;
             
             double heading_yaw_error_threshold_;
 
