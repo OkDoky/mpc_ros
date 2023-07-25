@@ -33,11 +33,22 @@ namespace mpc_ros{
         // initialize planner
         initialize(name, tf, costmap_ros);
     }
-    MPCPlannerROS::~MPCPlannerROS() {}
+    MPCPlannerROS::~MPCPlannerROS() {
+        delete context, Tracking_, RotateBeforeTracking_, StopAndRotate_,
+            ReachedAndIdle_, initialState, tracking_state_, dsrv_;
+    }
 
     void MPCPlannerROS::initialize(std::string name, tf2_ros::Buffer* tf, costmap_2d::Costmap2DROS* costmap_ros){
         ros::NodeHandle private_nh("~/" + name);
-        ReachedAndIdle* initialState = new ReachedAndIdle(context);
+        
+        // initialize Driving context
+        context = new DrivingStateContext;
+        Tracking_ = new Tracking(context);
+        RotateBeforeTracking_ = new RotateBeforeTracking(context);
+        StopAndRotate_ = new StopAndRotate(context);
+        ReachedAndIdle_ = new ReachedAndIdle(context);
+
+        initialState = new ReachedAndIdle(context);
         context->transitionTo(initialState);
         tracking_state_ = context;
 
@@ -86,6 +97,13 @@ namespace mpc_ros{
         latch_xy_goal_tolerance_ = false;
         latch_yaw_goal_tolerance_ = false;
         set_new_goal_ = false;
+
+        _feedback_vel.linear.x = 0.0;
+        _feedback_vel.linear.y = 0.0;
+        _feedback_vel.linear.z = 0.0;
+        _feedback_vel.angular.x = 0.0;
+        _feedback_vel.angular.y = 0.0;
+        _feedback_vel.angular.z = 0.0;
         
         dsrv_ = new dynamic_reconfigure::Server<MPCPlannerConfig>(private_nh);
         dynamic_reconfigure::Server<MPCPlannerConfig>::CallbackType cb = boost::bind(&MPCPlannerROS::reconfigureCB, this, _1, _2);
@@ -95,6 +113,7 @@ namespace mpc_ros{
     }
 
     void MPCPlannerROS::reconfigureCB(MPCPlannerConfig &config, uint32_t level) {
+        boost::mutex::scoped_lock l(configuration_mutex_);
         // update generic local planner params
         base_local_planner::LocalPlannerLimits limits;
         limits.max_vel_trans = config.max_vel_trans;
@@ -151,35 +170,36 @@ namespace mpc_ros{
     }
   
     bool MPCPlannerROS::setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan){
+        ROS_WARN("[MPCPlannerROS] start set plan");
         if( ! isInitialized()) {
             ROS_ERROR("This planner has not been initialized, please call initialize() before using this planner");
             return false;
         }
         set_new_goal_ = true;
+        ROS_WARN("[MPCPlannerROS] start to planner util plan");
         planner_util_.setPlan(orig_global_plan);
-        global_plan_ = orig_global_plan;
-        pruned_plan_ = orig_global_plan;
+        ROS_WARN("[MPCPlannerROS] success planner util plan");
 
-        geometry_msgs::PoseStamped global_pose;
-        geometry_msgs::Twist feedback_vel;
-        std::vector<geometry_msgs::PoseStamped> global_plan;
-        std::vector<geometry_msgs::PoseStamped> pruned_plan;
-        std::vector<geometry_msgs::PoseStamped> local_plan;
-        geometry_msgs::PoseStamped goal_pose;
-        bool isUpdated = updateInputs(global_pose, feedback_vel, goal_pose, global_plan, pruned_plan, local_plan);
+        // geometry_msgs::PoseStamped global_pose;
+        // geometry_msgs::Twist feedback_vel;
+        // std::vector<geometry_msgs::PoseStamped> global_plan;
+        // std::vector<geometry_msgs::PoseStamped> pruned_plan;
+        // std::vector<geometry_msgs::PoseStamped> local_plan;
+        // geometry_msgs::PoseStamped goal_pose;
+        // bool isUpdated = updateInputs(global_pose, feedback_vel, goal_pose, global_plan, pruned_plan, local_plan);
 
-        if(!isPositionReached(global_pose, goal_pose)){
-            if(!isBelowErrorTheta(global_pose, pruned_plan)){
-                context->transitionTo(RotateBeforeTracking_);
-                tracking_state_ = context;
-            }else{
-                context->transitionTo(Tracking_);
-                tracking_state_ = context;
-            }
-        }else{
-            context->transitionTo(StopAndRotate_);
-            tracking_state_ = context;            
-        }
+        // if(!isPositionReached(global_pose, goal_pose)){
+        //     if(!isBelowErrorTheta(global_pose, pruned_plan)){
+        //         context->transitionTo(RotateBeforeTracking_);
+        //         tracking_state_ = context;
+        //     }else{
+        //         context->transitionTo(Tracking_);
+        //         tracking_state_ = context;
+        //     }
+        // }else{
+        //     context->transitionTo(StopAndRotate_);
+        //     tracking_state_ = context;            
+        // }
         return true;
         
     }
@@ -215,12 +235,16 @@ namespace mpc_ros{
     }
 
     bool MPCPlannerROS::isGoalReached(){
+        ROS_WARN("[MPCPlannerROS] start to is goal reached");
         geometry_msgs::PoseStamped global_pose;
         if (!getRobotPose(global_pose)) {
+            ROS_WARN("[MPCPlannerROS] failed to get robot pose");
             return false;
         }
         geometry_msgs::Twist feedback_vel;
+        ROS_WARN("[MPCPlannerROS] start to update feedback_vel");
         getRobotVel(feedback_vel);
+        ROS_WARN("[MPCPlannerROS] success to update feedback_vel");
 
         // get goal pose
         geometry_msgs::PoseStamped goal_pose;
@@ -228,6 +252,7 @@ namespace mpc_ros{
             ROS_ERROR("[MPCROS] Could not get goal pose");
             return false;
         }
+        ROS_WARN("[MPCPlannerROS] success to get goal");
 
         if (latch_xy_goal_tolerance_ && latch_yaw_goal_tolerance_){
             latch_xy_goal_tolerance_ = false;
@@ -335,7 +360,6 @@ namespace mpc_ros{
                                      std::vector<geometry_msgs::PoseStamped>& pruned_plan,
                                      std::vector<geometry_msgs::PoseStamped>& local_plan){
         // test
-        bool isLocalPlanUpdated, isGlobalPlanUpdated, isRobotPoseUpdated, isGoalPoseUpdated, isPrunedPlanUpdated;
         bool isUpdated;
         bool essentialIsUpdated;
         std::string cur_state = tracking_state_->getContext();
@@ -346,7 +370,6 @@ namespace mpc_ros{
         
         isUpdated = essentialIsUpdated;
         isUpdated &= getGlobalPlan(global_pose, global_plan);
-
         pruned_plan = global_plan;
         if (!global_plan.empty()){
             isUpdated &= getPrunedPlan(global_pose, pruned_plan);
@@ -453,70 +476,64 @@ namespace mpc_ros{
     bool MPCPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel){
         
         bool is_ok = false;
-        try{
-            // update inputs
-            geometry_msgs::PoseStamped global_pose;
-            geometry_msgs::Twist feedback_vel;
-            std::vector<geometry_msgs::PoseStamped> global_plan;
-            std::vector<geometry_msgs::PoseStamped> pruned_plan;
-            std::vector<geometry_msgs::PoseStamped> local_plan;
-            geometry_msgs::PoseStamped goal_pose;
-            if(!updateInputs(global_pose, feedback_vel, goal_pose, global_plan, pruned_plan, local_plan)){
-                ROS_ERROR("[MPCPlannerROS] failed to update inputs");
-                return false;
-            }
-            ROS_WARN("[MPCPlannerROS] finish update inputs");
-            // publish updated plan
-            publishLocalPlan(local_plan);
-            publishGlobalPlan(global_plan);
-            publishGlobalPrunedPlan(pruned_plan);
-            ROS_WARN("[MPCPlannerROS] success to publish plans (local, global, pruend)");
-
-            std::string state_str;
-            checkStates(state_str, global_pose, feedback_vel, goal_pose, local_plan);
-
-            // move_base finish job
-            if (state_str == std::string("ReachedAndIdle")){
-                return true;
-            }
-
-            // for tracking local plan
-            std::vector<geometry_msgs::PoseStamped> ref_plan;
-            if (!local_plan.empty()){
-                downSamplePlan(ref_plan, local_plan);
-            }
-            is_ok = tracking_state_->getCmd(cmd_vel, global_pose, goal_pose, feedback_vel, ref_plan);
-            if (is_ok && (tracking_state_->getContext() == std::string("Tracking"))){
-                ROS_WARN("[MPCPlannerROS] tracking state, start to calculate mpc_trajectory");
-                nav_msgs::Path mpc_traj;
-                mpc_traj.header.frame_id = robot_base_frame_;
-                mpc_traj.header.stamp = ros::Time::now();
-                geometry_msgs::PoseStamped temp_pose;
-                temp_pose.header.frame_id = mpc_traj.header.frame_id;
-                temp_pose.header.stamp = mpc_traj.header.stamp;
-                tf2::Quaternion quat_temp;
-                for (unsigned int i = 0; i < tracking_state_->_mpc.mpc_x.size(); i++){
-                    temp_pose.pose.position.x = tracking_state_->_mpc.mpc_x[i];
-                    temp_pose.pose.position.y = tracking_state_->_mpc.mpc_y[i];
-
-                    quat_temp.setRPY(0, 0, tracking_state_->_mpc.mpc_theta[i]);
-                    temp_pose.pose.orientation.x = quat_temp[0];
-                    temp_pose.pose.orientation.y = quat_temp[1];
-                    temp_pose.pose.orientation.z = quat_temp[2];
-                    temp_pose.pose.orientation.w = quat_temp[3];
-                    mpc_traj.poses.push_back(temp_pose);
-                }
-                pub_mpc_traj_.publish(mpc_traj);
-            }
-            return is_ok;
-        } catch (const std::exception& e){
-            ROS_WARN("[MPCPlannerROS] %s", e.what());
-            return is_ok;
-        } catch(...){
-            ROS_WARN("[MPCPlannerROS] failed to update computeVelocityCommands...");
-            return is_ok;
+        // update inputs
+        geometry_msgs::PoseStamped global_pose;
+        geometry_msgs::Twist feedback_vel;
+        std::vector<geometry_msgs::PoseStamped> global_plan;
+        std::vector<geometry_msgs::PoseStamped> pruned_plan;
+        std::vector<geometry_msgs::PoseStamped> local_plan;
+        geometry_msgs::PoseStamped goal_pose;
+        if(!updateInputs(global_pose, feedback_vel, goal_pose, global_plan, pruned_plan, local_plan)){
+            ROS_ERROR("[MPCPlannerROS] failed to update inputs");
+            return false;
         }
-        
+        // publish updated plan
+        if (local_plan.size() != 0){
+            publishLocalPlan(local_plan);
+        } if (global_plan.size() != 0){
+            publishGlobalPlan(global_plan);
+        } if (pruned_plan.size() != 0){
+            publishGlobalPrunedPlan(pruned_plan);
+        }
+        std::string state_str;
+        checkStates(state_str, global_pose, feedback_vel, goal_pose, local_plan);
+
+        // move_base finish job
+        if (state_str == std::string("ReachedAndIdle")){
+            return true;
+        }
+
+        // for tracking local plan
+        std::vector<geometry_msgs::PoseStamped> ref_plan;
+        if (!local_plan.empty()){
+            downSamplePlan(ref_plan, local_plan);
+        }else{
+            ROS_WARN("[MPCPlannerROS] local plan is empty..");
+            return false;
+        }
+        is_ok = tracking_state_->getCmd(cmd_vel, global_pose, goal_pose, feedback_vel, ref_plan);
+        if (is_ok && (tracking_state_->getContext() == std::string("Tracking"))){
+            nav_msgs::Path mpc_traj;
+            mpc_traj.header.frame_id = robot_base_frame_;
+            mpc_traj.header.stamp = ros::Time::now();
+            geometry_msgs::PoseStamped temp_pose;
+            temp_pose.header.frame_id = mpc_traj.header.frame_id;
+            temp_pose.header.stamp = mpc_traj.header.stamp;
+            tf2::Quaternion quat_temp;
+            for (unsigned int i = 0; i < tracking_state_->_mpc.mpc_x.size(); i++){
+                temp_pose.pose.position.x = tracking_state_->_mpc.mpc_x[i];
+                temp_pose.pose.position.y = tracking_state_->_mpc.mpc_y[i];
+
+                quat_temp.setRPY(0, 0, tracking_state_->_mpc.mpc_theta[i]);
+                temp_pose.pose.orientation.x = quat_temp[0];
+                temp_pose.pose.orientation.y = quat_temp[1];
+                temp_pose.pose.orientation.z = quat_temp[2];
+                temp_pose.pose.orientation.w = quat_temp[3];
+                mpc_traj.poses.push_back(temp_pose);
+            }
+            pub_mpc_traj_.publish(mpc_traj);
+        }
+        return is_ok;
     }
 
     // Evaluate a polynomial.
