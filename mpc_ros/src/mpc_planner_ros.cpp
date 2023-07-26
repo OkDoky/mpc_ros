@@ -411,26 +411,26 @@ namespace mpc_ros{
         }
         if (goal_reached_){
             if(prev_state != std::string("ReachedAndIdle")){
-                ROS_WARN("[MPCROS] state Transition %s -> ReachedAndIdle.",prev_state.c_str());
+                ROS_DEBUG("[MPCROS] state Transition %s -> ReachedAndIdle.",prev_state.c_str());
                 context->transitionTo(ReachedAndIdle_);
                 tracking_state_ = context;
             }
         } else if (position_reached_){
             if(prev_state != std::string("StopAndRotate")){
-                ROS_WARN("[MPCROS] state Transition %s -> StopAndRotate.",prev_state.c_str());
+                ROS_DEBUG("[MPCROS] state Transition %s -> StopAndRotate.",prev_state.c_str());
                 context->transitionTo(StopAndRotate_);
                 tracking_state_ = context;
             }
         } else if (!below_error_heading_yaw_){
             if(prev_state != std::string("RotateBeforeTracking")){ //} &&
                 // prev_state != std::string("Tracking")){
-                ROS_WARN("[MPCROS] state Transition %s -> RotateBeforeTracking.",prev_state.c_str());
+                ROS_DEBUG("[MPCROS] state Transition %s -> RotateBeforeTracking.",prev_state.c_str());
                 context->transitionTo(RotateBeforeTracking_);
                 tracking_state_ = context;
             }
         } else {
             if(prev_state != std::string("Tracking") ){
-                ROS_WARN("[MPCROS] state Transition %s -> Tracking.",prev_state.c_str());
+                ROS_DEBUG("[MPCROS] state Transition %s -> Tracking.",prev_state.c_str());
                 context->transitionTo(Tracking_);
                 tracking_state_ = context;
             }
