@@ -92,7 +92,7 @@ namespace mpc_ros{
         subPlanAgentOutput_ = _nh.subscribe("subPlanAgnet/output", 1, &MPCPlannerROS::subPlanAgentOutputCB, this);
         
         //Init variables
-        heading_yaw_error_threshold_ = 0.1;
+        heading_yaw_error_threshold_ = 0.5236; // 30 degrees
 
         latch_xy_goal_tolerance_ = false;
         latch_yaw_goal_tolerance_ = false;
@@ -170,15 +170,12 @@ namespace mpc_ros{
     }
   
     bool MPCPlannerROS::setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan){
-        ROS_WARN("[MPCPlannerROS] start set plan");
         if( ! isInitialized()) {
             ROS_ERROR("This planner has not been initialized, please call initialize() before using this planner");
             return false;
         }
         set_new_goal_ = true;
-        ROS_WARN("[MPCPlannerROS] start to planner util plan");
         planner_util_.setPlan(orig_global_plan);
-        ROS_WARN("[MPCPlannerROS] success planner util plan");
 
         // geometry_msgs::PoseStamped global_pose;
         // geometry_msgs::Twist feedback_vel;
@@ -235,16 +232,13 @@ namespace mpc_ros{
     }
 
     bool MPCPlannerROS::isGoalReached(){
-        ROS_WARN("[MPCPlannerROS] start to is goal reached");
         geometry_msgs::PoseStamped global_pose;
         if (!getRobotPose(global_pose)) {
             ROS_WARN("[MPCPlannerROS] failed to get robot pose");
             return false;
         }
         geometry_msgs::Twist feedback_vel;
-        ROS_WARN("[MPCPlannerROS] start to update feedback_vel");
         getRobotVel(feedback_vel);
-        ROS_WARN("[MPCPlannerROS] success to update feedback_vel");
 
         // get goal pose
         geometry_msgs::PoseStamped goal_pose;
@@ -252,7 +246,6 @@ namespace mpc_ros{
             ROS_ERROR("[MPCROS] Could not get goal pose");
             return false;
         }
-        ROS_WARN("[MPCPlannerROS] success to get goal");
 
         if (latch_xy_goal_tolerance_ && latch_yaw_goal_tolerance_){
             latch_xy_goal_tolerance_ = false;
@@ -276,8 +269,8 @@ namespace mpc_ros{
         static double goal_x = goal_pose.pose.position.x;
         static double goal_y = goal_pose.pose.position.y;
 
-        double goal_th = tf2::getYaw(goal_pose.pose.orientation);
-        double angle = getGoalOrientationAngleDifference(global_pose, goal_th);
+        // double goal_th = tf2::getYaw(goal_pose.pose.orientation);
+        double angle = getGoalOrientationAngleDifference(global_pose, goal_pose);
         if (fabs(angle) <= planner_util_.getCurrentLimits().yaw_goal_tolerance){
             geometry_msgs::PoseStamped robot_pose;
             if (!getRobotPose(robot_pose)){
@@ -297,10 +290,11 @@ namespace mpc_ros{
     bool MPCPlannerROS::isBelowErrorTheta(const geometry_msgs::PoseStamped& global_pose,
                                           const std::vector<geometry_msgs::PoseStamped>& pruned_plan){
         if (pruned_plan.size() == 0){
+            ROS_WARN("[MPCPlannerROS] pruned plan is empty");
             return false;
         }
-        double path_direction = tf2::getYaw(pruned_plan[0].pose.orientation);
-        double error_theta = getGoalOrientationAngleDifference(global_pose, path_direction);
+        // double path_direction = tf2::getYaw(pruned_plan[0].pose.orientation);
+        double error_theta = getGoalOrientationAngleDifference(global_pose, pruned_plan[0]);
         if (fabs(error_theta) <= heading_yaw_error_threshold_){
             return true;
         }
@@ -428,8 +422,8 @@ namespace mpc_ros{
                 tracking_state_ = context;
             }
         } else if (!below_error_heading_yaw_){
-            if(prev_state != std::string("RotateBeforeTracking") &&
-                prev_state != std::string("Tracking")){
+            if(prev_state != std::string("RotateBeforeTracking")){ //} &&
+                // prev_state != std::string("Tracking")){
                 ROS_WARN("[MPCROS] state Transition %s -> RotateBeforeTracking.",prev_state.c_str());
                 context->transitionTo(RotateBeforeTracking_);
                 tracking_state_ = context;

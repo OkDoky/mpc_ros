@@ -121,10 +121,10 @@ namespace mpc_ros{
                             goal_pose.pose.position.y - global_pose.pose.position.y);
             }
             inline double getGoalOrientationAngleDifference(const geometry_msgs::PoseStamped& global_pose,
-                    double goal_th){
+                    const geometry_msgs::PoseStamped&  goal_pose){
                 double yaw = normalizeAngle(tf2::getYaw(global_pose.pose.orientation), -M_PI, M_PI);
-                goal_th = normalizeAngle(goal_th, -M_PI, M_PI);
-                return normalizeAngle(angles::shortest_angular_distance(yaw, goal_th), -M_PI, M_PI);
+                double yaw_goal = normalizeAngle(tf2::getYaw(goal_pose.pose.orientation), -M_PI, M_PI);
+                return normalizeAngle(angles::shortest_angular_distance(yaw, yaw_goal), -M_PI, M_PI);
             }
             inline bool stopped(const geometry_msgs::Twist& feedback_vel,
                     const double rot_stopped_vel,
