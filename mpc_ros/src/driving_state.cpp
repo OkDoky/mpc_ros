@@ -17,10 +17,7 @@ DrivingStateContext::~DrivingStateContext() {
 }
 
 void DrivingStateContext::transitionTo(DrivingState *state) {
-  if (this->state_ != nullptr){
-    std::cout << "[DrivingStateContext] change state " << this->state_->getContextName() << " -> " << state->getContextName() << std::endl;
-    // delete this->state_;
-  } else{
+  if (this->state_ == nullptr){
     this->_w = 0.0;
     this->_speed = 0.0;
     this->_max_speed = 0.7;
@@ -42,7 +39,7 @@ void DrivingStateContext::transitionTo(DrivingState *state) {
   this->mpc_params_["REF_V"] = this->_max_speed;
   this->_mpc.LoadParams(this->mpc_params_);
   this->is_deceleration_ = false;
-  std::cout << "[DrivingStateContext] current state : " << this->state_->getContextName() << std::endl;
+  // std::cout << "[DrivingStateContext] current state : " << this->state_->getContextName() << std::endl;
 }
 
 void DrivingStateContext::updateMpcConfigs(mpc_ros::MPCPlannerConfig &config){
