@@ -97,13 +97,6 @@ namespace mpc_ros{
         latch_xy_goal_tolerance_ = false;
         latch_yaw_goal_tolerance_ = false;
         set_new_goal_ = false;
-
-        _feedback_vel.linear.x = 0.0;
-        _feedback_vel.linear.y = 0.0;
-        _feedback_vel.linear.z = 0.0;
-        _feedback_vel.angular.x = 0.0;
-        _feedback_vel.angular.y = 0.0;
-        _feedback_vel.angular.z = 0.0;
         
         dsrv_ = new dynamic_reconfigure::Server<MPCPlannerConfig>(private_nh);
         dynamic_reconfigure::Server<MPCPlannerConfig>::CallbackType cb = boost::bind(&MPCPlannerROS::reconfigureCB, this, _1, _2);
@@ -176,27 +169,6 @@ namespace mpc_ros{
         }
         set_new_goal_ = true;
         planner_util_.setPlan(orig_global_plan);
-
-        // geometry_msgs::PoseStamped global_pose;
-        // geometry_msgs::Twist feedback_vel;
-        // std::vector<geometry_msgs::PoseStamped> global_plan;
-        // std::vector<geometry_msgs::PoseStamped> pruned_plan;
-        // std::vector<geometry_msgs::PoseStamped> local_plan;
-        // geometry_msgs::PoseStamped goal_pose;
-        // bool isUpdated = updateInputs(global_pose, feedback_vel, goal_pose, global_plan, pruned_plan, local_plan);
-
-        // if(!isPositionReached(global_pose, goal_pose)){
-        //     if(!isBelowErrorTheta(global_pose, pruned_plan)){
-        //         context->transitionTo(RotateBeforeTracking_);
-        //         tracking_state_ = context;
-        //     }else{
-        //         context->transitionTo(Tracking_);
-        //         tracking_state_ = context;
-        //     }
-        // }else{
-        //     context->transitionTo(StopAndRotate_);
-        //     tracking_state_ = context;            
-        // }
         return true;
         
     }
@@ -294,8 +266,8 @@ namespace mpc_ros{
             return false;
         }
         // double path_direction = tf2::getYaw(pruned_plan[0].pose.orientation);
-        double error_theta = getGoalOrientationAngleDifference(global_pose, pruned_plan[0]);
-        if (fabs(error_theta) <= heading_yaw_error_threshold_){
+        double error_theta = getGoalOrientationAngleDifference(global_pose, pruned_plan.front());
+        if (abs(error_theta) <= heading_yaw_error_threshold_){
             return true;
         }
         return false;
@@ -411,26 +383,25 @@ namespace mpc_ros{
         }
         if (goal_reached_){
             if(prev_state != std::string("ReachedAndIdle")){
-                ROS_DEBUG("[MPCROS] state Transition %s -> ReachedAndIdle.",prev_state.c_str());
+                ROS_INFO("[MPCROS] state Transition %s -> ReachedAndIdle.",prev_state.c_str());
                 context->transitionTo(ReachedAndIdle_);
                 tracking_state_ = context;
             }
         } else if (position_reached_){
             if(prev_state != std::string("StopAndRotate")){
-                ROS_DEBUG("[MPCROS] state Transition %s -> StopAndRotate.",prev_state.c_str());
+                ROS_INFO("[MPCROS] state Transition %s -> StopAndRotate.",prev_state.c_str());
                 context->transitionTo(StopAndRotate_);
                 tracking_state_ = context;
             }
         } else if (!below_error_heading_yaw_){
-            if(prev_state != std::string("RotateBeforeTracking")){ //} &&
-                // prev_state != std::string("Tracking")){
-                ROS_DEBUG("[MPCROS] state Transition %s -> RotateBeforeTracking.",prev_state.c_str());
+            if(prev_state != std::string("RotateBeforeTracking")){
+                ROS_INFO("[MPCROS] state Transition %s -> RotateBeforeTracking.",prev_state.c_str());
                 context->transitionTo(RotateBeforeTracking_);
                 tracking_state_ = context;
             }
         } else {
-            if(prev_state != std::string("Tracking") ){
-                ROS_DEBUG("[MPCROS] state Transition %s -> Tracking.",prev_state.c_str());
+            if(prev_state != std::string("Tracking")){
+                ROS_INFO("[MPCROS] state Transition %s -> Tracking.",prev_state.c_str());
                 context->transitionTo(Tracking_);
                 tracking_state_ = context;
             }
@@ -446,22 +417,22 @@ namespace mpc_ros{
         dist = 0.0;
         ros::Time planning_time_ = ros::Time::now();
 
-        for (unsigned int i = 1; i < ref_plan.size() - 1; i++){
+        for (unsigned int i = 1; i < ref_plan.size()-1; i++){
             dx = ref_plan[i].pose.position.x - ref_plan[i-1].pose.position.x;
             dy = ref_plan[i].pose.position.y - ref_plan[i-1].pose.position.y;
             dist += hypot(dx,dy);
-            if (dist >= 0.2){
+            if (dist >= 0.1){
                 dist = 0.0;
                 down_sampled_plan.push_back(ref_plan[i]);
                 down_sampled_plan.back().header.stamp = planning_time_;
                 down_sampled_plan.back().header.frame_id = global_frame_;
             }
         }
-
         down_sampled_plan.push_back(ref_plan.back());
         down_sampled_plan.back().header.stamp = planning_time_;
         down_sampled_plan.back().header.frame_id = global_frame_;
-        down_sampled_plan_.poses.push_back(ref_plan.back());
+
+        down_sampled_plan_.poses = down_sampled_plan;
         down_sampled_plan_.header.frame_id = global_frame_;
         down_sampled_plan_.header.stamp = ros::Time::now();
         pub_mpc_ref_.publish(down_sampled_plan_);
@@ -501,6 +472,9 @@ namespace mpc_ros{
         std::vector<geometry_msgs::PoseStamped> ref_plan;
         if (!local_plan.empty()){
             downSamplePlan(ref_plan, local_plan);
+            if (ref_plan.empty()){
+                return false;
+            }
         }else{
             ROS_WARN("[MPCPlannerROS] local plan is empty..");
             return false;
