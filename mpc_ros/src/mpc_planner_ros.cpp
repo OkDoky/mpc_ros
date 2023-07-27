@@ -93,6 +93,9 @@ namespace mpc_ros{
         
         //Init variables
         heading_yaw_error_threshold_ = 0.5236; // 30 degrees
+        heading_yaw_error_threshold_ = private_nh.param<double>("heading_yaw_threshold", 0.1745); // 30 degrees
+        local_planner_resolution_ = private_nh.param<double>("local_planner_resolution", 0.03);
+        ROS_INFO("[MPCPlannerROS] heading yaw threshold : %.5f", heading_yaw_error_threshold_);
 
         latch_xy_goal_tolerance_ = false;
         latch_yaw_goal_tolerance_ = false;
@@ -131,7 +134,7 @@ namespace mpc_ros{
         tracking_state_->updateMpcConfigs(config);
         double max_speed = config.max_speed;
         double max_throttle = config.max_throttle;
-        quintic_poly_planner_.initialize(max_speed, max_throttle);
+        quintic_poly_planner_.initialize(max_speed, max_throttle, local_planner_resolution_);
 
         planner_util_.reconfigureCB(limits, false);
 
@@ -167,6 +170,7 @@ namespace mpc_ros{
             ROS_ERROR("This planner has not been initialized, please call initialize() before using this planner");
             return false;
         }
+        ROS_INFO("[MPCPlannerROS] got new plan");
         set_new_goal_ = true;
         planner_util_.setPlan(orig_global_plan);
         return true;
@@ -414,6 +418,7 @@ namespace mpc_ros{
         nav_msgs::Path down_sampled_plan_;
 
         double dx, dy, dist;
+        double xy_tolerance = planner_util_.getCurrentLimits().xy_goal_tolerance;
         dist = 0.0;
         ros::Time planning_time_ = ros::Time::now();
 
@@ -421,7 +426,7 @@ namespace mpc_ros{
             dx = ref_plan[i].pose.position.x - ref_plan[i-1].pose.position.x;
             dy = ref_plan[i].pose.position.y - ref_plan[i-1].pose.position.y;
             dist += hypot(dx,dy);
-            if (dist >= 0.1){
+            if (dist >= xy_tolerance){
                 dist = 0.0;
                 down_sampled_plan.push_back(ref_plan[i]);
                 down_sampled_plan.back().header.stamp = planning_time_;
@@ -465,6 +470,7 @@ namespace mpc_ros{
 
         // move_base finish job
         if (state_str == std::string("ReachedAndIdle")){
+            ROS_INFO("[MPCPlannerROS] reached goal.");
             return true;
         }
 
