@@ -40,6 +40,7 @@ namespace mpc_ros{
 
     void MPCPlannerROS::initialize(std::string name, tf2_ros::Buffer* tf, costmap_2d::Costmap2DROS* costmap_ros){
         ros::NodeHandle private_nh("~/" + name);
+        ros::NodeHandle costmap_nh("~/local_costmap");
         
         // initialize Driving context
         context = new DrivingStateContext;
@@ -87,6 +88,8 @@ namespace mpc_ros{
         pub_g_pruned_plan_ = private_nh.advertise<nav_msgs::Path>("global_pruned_plan", 1);
         pub_l_pruned_plan_ = private_nh.advertise<nav_msgs::Path>("local_pruned_plan", 1);
         pub_pruned_first_point_ = private_nh.advertise<geometry_msgs::PoseStamped>("pruned_first_point",1);
+        pub_merged_footprint_ = private_nh.advertise<geometry_msgs::PolygonStamped>("merged_footprint",1);
+        pub_merged_footprint_sorted_ = private_nh.advertise<geometry_msgs::PolygonStamped>("merged_footprint_sortfootprint_ed",1);
 
         feedbackVelCB_ = _nh.subscribe("feedback_vel", 1, &MPCPlannerROS::feedbackVelCB, this);
         subPlanAgentOutput_ = _nh.subscribe("subPlanAgnet/output", 1, &MPCPlannerROS::subPlanAgentOutputCB, this);
@@ -97,6 +100,17 @@ namespace mpc_ros{
         local_planner_resolution_ = private_nh.param<double>("local_planner_resolution", 0.03);
         ROS_INFO("[MPCPlannerROS] heading yaw threshold : %.5f", heading_yaw_error_threshold_);
 
+        footprint_ = costmap_2d::makeFootprintFromParams(costmap_nh); // std::vector<geometry_msgs::Point>
+        if (!footprint_.empty()){
+            std::stringstream ss;
+            for (const auto& point: footprint_){
+                ss << "(" << point.x << ", " << point.y << ")";
+            }
+            ROS_WARN("[MPCPlannerROS] set footprint as %s", ss.str().c_str());
+        }else{
+            ROS_WARN("[MPCPlannerROS] footprint is empty..");
+        }
+        
         latch_xy_goal_tolerance_ = false;
         latch_yaw_goal_tolerance_ = false;
         set_new_goal_ = false;
@@ -323,6 +337,54 @@ namespace mpc_ros{
         return true;
     }
 
+    void MPCPlannerROS::mergeFootprints(const std::vector<geometry_msgs::PoseStamped>& local_plan,
+            const std::vector<geometry_msgs::Point>& footprint,
+            geometry_msgs::PolygonStamped& merged_polygon){
+        // Check for plan and footprint is empty
+        if (local_plan.empty() || footprint.empty()){
+            return;
+        }
+
+        // Using convexHull
+        std::vector<cv::Point2d> footprint_points;
+        for (const auto& point: footprint){
+            double x = point.x;
+            double y = point.y;
+            footprint_points.emplace_back(x,y);
+        }
+
+        std::vector<std::vector<cv::Point2f>> convex_hulls;
+        for (const auto& pose: local_plan){
+            double path_x = pose.pose.position.x;
+            double path_y = pose.pose.position.y;
+            double path_yaw = tf2::getYaw(pose.pose.orientation);
+
+            std::vector<cv::Point2f> transformed_footprint;
+            for (const auto& point: footprint_points){
+                float x = static_cast<float>(path_x + point.x * cos(path_yaw) - point.y * sin(path_yaw));
+                float y = static_cast<float>(path_y + point.x * sin(path_yaw) + point.y * cos(path_yaw));
+                transformed_footprint.emplace_back(x,y);
+            }
+            convex_hulls.push_back(transformed_footprint);
+        }
+        std::vector<cv::Point2f> merged_convex_hull;
+        for (const auto& convex_hull: convex_hulls){
+            merged_convex_hull.insert(merged_convex_hull.end(), convex_hull.begin(),convex_hull.end());
+        }
+        std::vector<cv::Point2f> final_convex_hull;
+        cv::convexHull(merged_convex_hull, final_convex_hull);
+
+        merged_polygon.header.stamp = ros::Time::now();
+        merged_polygon.header.frame_id = robot_base_frame_;
+        for (const auto& point: final_convex_hull){
+            geometry_msgs::Point32 polygon_point;
+            polygon_point.x = point.x;
+            polygon_point.y = point.y;
+            merged_polygon.polygon.points.push_back(polygon_point);
+        }
+        pub_merged_footprint_.publish(merged_polygon);
+    }
+
     bool MPCPlannerROS::updateInputs(geometry_msgs::PoseStamped& global_pose,
                                      geometry_msgs::Twist& feedback_vel,
                                      geometry_msgs::PoseStamped& goal_pose,
@@ -358,6 +420,8 @@ namespace mpc_ros{
                             local_goal_maker_.getLocalGoal(pruned_plan[0], global_plan[0].pose.orientation),
                             feedback_vel, pruned_plan, false, local_plan);
             }
+            // geometry_msgs::PolygonStamped merged_polygon;
+            // mergeFootprints(local_plan, footprint_, merged_polygon);
         }else{
             ROS_WARN("[MPCPlannerROS] global plan is empty");
             isUpdated &= false;
@@ -505,6 +569,8 @@ namespace mpc_ros{
                 temp_pose.pose.orientation.w = quat_temp[3];
                 mpc_traj.poses.push_back(temp_pose);
             }
+            geometry_msgs::PolygonStamped merged_polygon;
+            mergeFootprints(mpc_traj.poses, footprint_, merged_polygon);
             pub_mpc_traj_.publish(mpc_traj);
         }
         return is_ok;
