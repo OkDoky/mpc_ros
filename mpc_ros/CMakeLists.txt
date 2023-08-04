@@ -23,10 +23,12 @@ find_package(Boost REQUIRED
   COMPONENTS
     thread
     )
+find_package(OpenCV REQUIRED)
 
 include_directories( 
   include
   ${catkin_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
   /usr/local/include
 )
 
@@ -63,6 +65,7 @@ add_dependencies(mpc_ros mpc_ros_gencfg)
 target_link_libraries(mpc_ros 
   ipopt
   ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
   quintic_polynomial_planner
   /usr/local/lib
 )
