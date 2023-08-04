@@ -21,13 +21,17 @@
 #include <map>
 #include <Eigen/Core>
 #include <stdexcept>
+#include <opencv2/opencv.hpp>
+
 // abstract class from which our plugin inherits
 #include <nav_core/base_local_planner.h>
 #include <base_local_planner/trajectory.h>
 #include <base_local_planner/local_planner_util.h>
 #include <base_local_planner/goal_functions.h>
+
 // local planner specific classes which provide some macros
 #include <costmap_2d/costmap_2d_ros.h>
+#include <costmap_2d/footprint.h>
 #include <dynamic_reconfigure/server.h>
 #include <mpc_ros/MPCPlannerConfig.h>
 
@@ -41,7 +45,10 @@
 #include <math.h>
 #include <angles/angles.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/Point.h>
+#include <geometry_msgs/Point32.h>
 #include <geometry_msgs/Twist.h>
+#include <geometry_msgs/PolygonStamped.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2/convert.h>
 #include <tf2_ros/buffer.h>
@@ -114,7 +121,11 @@ namespace mpc_ros{
             void reconfigureCB(MPCPlannerConfig &config, uint32_t level);
             void feedbackVelCB(const geometry_msgs::Twist& feedback);
             void subPlanAgentOutputCB(const std_msgs::Float32MultiArray& output);
-
+        //     int orientation(const cv::Point2d &p, const cv::Point2d &q, const cv::Point2d &r);
+        //     std::vector<cv::Point2d> giftWrapping(const std::vector<cv::Point2d>& points);
+            void mergeFootprints(const std::vector<geometry_msgs::PoseStamped>& local_plan,
+                    const std::vector<geometry_msgs::Point>& footprint,
+                    geometry_msgs::PolygonStamped& merged_polygon);
             inline double getGoalPositionDistance(const geometry_msgs::PoseStamped& global_pose, 
                     const geometry_msgs::PoseStamped& goal_pose){
                 return hypot(goal_pose.pose.position.x - global_pose.pose.position.x, 
@@ -174,6 +185,8 @@ namespace mpc_ros{
             ros::Publisher pub_g_plan_, pub_l_plan_;
             ros::Publisher pub_g_pruned_plan_, pub_l_pruned_plan_;
             ros::Publisher pub_pruned_first_point_;
+            ros::Publisher pub_merged_footprint_;
+            ros::Publisher pub_merged_footprint_sorted_;
 
             // global plan & local plans
             std::vector<geometry_msgs::PoseStamped> global_plan_;
@@ -192,6 +205,7 @@ namespace mpc_ros{
             int _downSampling;
             bool latch_xy_goal_tolerance_, latch_yaw_goal_tolerance_, set_new_goal_;
             double polyeval(Eigen::VectorXd coeffs, double x);
+            std::vector<geometry_msgs::Point> footprint_;
             Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order);
     };
 };
