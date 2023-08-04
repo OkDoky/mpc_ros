@@ -11,7 +11,7 @@ class LocalGoalMaker
     public:
         LocalGoalMaker() :min_length_(0.5), 
             min_theta_(-M_PI/4.0), max_theta_(M_PI/4.0),
-            length_(0.5), width_(0.0), theta_(0.0), 
+            length_(3.0), width_(0.0), theta_(0.0), 
             signed_cte_(0.0), update_(false){}
 
         // Accessors and Mutators for Length
@@ -43,15 +43,17 @@ class LocalGoalMaker
         // Accessors and Mutators for Update
         bool getUpdate() const { return update_; }
         void setUpdate(bool update) { update_ = update; }
-
         // Accessors and Mutators for signed cte
         double getCte() { return signed_cte_; }
         void setCte(double cte) { signed_cte_ = cte; }
 
         // Accessors for multi inputs
-        void setCallBackInputs(double length, double theta){
-            setLength(length);
-            setTheta(theta);
+        void setCallBackInputs(double width, double replan){
+            // setLength(length);
+            // setTheta(theta);
+            if (replan < 0.5)
+                return;
+            setWidth(width);
         }
 
         double getApproximateSlope(){
@@ -61,7 +63,7 @@ class LocalGoalMaker
         geometry_msgs::PoseStamped getLocalGoal(geometry_msgs::PoseStamped& global_pose,
                 geometry_msgs::Quaternion& path_quat){
             geometry_msgs::PoseStamped local_goal;
-            double local_y = length_*tan(theta_);
+            double local_y = width_;
             double local_x = length_;
             double yaw = tf2::getYaw(global_pose.pose.orientation);
             double global_x = global_pose.pose.position.x + local_x * cos(yaw) - local_y * sin(yaw);
