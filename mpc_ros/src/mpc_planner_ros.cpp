@@ -412,7 +412,7 @@ namespace mpc_ros{
                                     pruned_plan[0].pose.position.y-pruned_plan.back().pose.position.y);
             }
             local_goal_maker_.setCte(getSignedCte(pruned_plan[0], global_pose));
-            if(plan_length <= local_goal_maker_.getApproximateSlope()){
+            if(plan_length <= 3.0){
                 isUpdated &= getLocalPlan(global_pose, goal_pose,
                             feedback_vel, pruned_plan, true, local_plan);
             }else{
@@ -529,15 +529,6 @@ namespace mpc_ros{
         } if (pruned_plan.size() != 0){
             publishGlobalPrunedPlan(pruned_plan);
         }
-        std::string state_str;
-        checkStates(state_str, global_pose, feedback_vel, goal_pose, local_plan);
-
-        // move_base finish job
-        if (state_str == std::string("ReachedAndIdle")){
-            ROS_INFO("[MPCPlannerROS] reached goal.");
-            return true;
-        }
-
         // for tracking local plan
         std::vector<geometry_msgs::PoseStamped> ref_plan;
         if (!local_plan.empty()){
@@ -549,6 +540,16 @@ namespace mpc_ros{
             ROS_WARN("[MPCPlannerROS] local plan is empty..");
             return false;
         }
+
+        std::string state_str;
+        checkStates(state_str, global_pose, feedback_vel, goal_pose, ref_plan);
+
+        // move_base finish job
+        if (state_str == std::string("ReachedAndIdle")){
+            ROS_INFO("[MPCPlannerROS] reached goal.");
+            return true;
+        }
+
         is_ok = tracking_state_->getCmd(cmd_vel, global_pose, goal_pose, feedback_vel, ref_plan);
         if (is_ok && (tracking_state_->getContext() == std::string("Tracking"))){
             nav_msgs::Path mpc_traj;
@@ -572,7 +573,13 @@ namespace mpc_ros{
             geometry_msgs::PolygonStamped merged_polygon;
             mergeFootprints(mpc_traj.poses, footprint_, merged_polygon);
             pub_mpc_traj_.publish(mpc_traj);
+        }else{
+            nav_msgs::Path mpc_traj;
+            mpc_traj.header.frame_id = robot_base_frame_;
+            mpc_traj.header.stamp = ros::Time::now();
+            pub_mpc_traj_.publish(mpc_traj);
         }
+
         return is_ok;
     }
 
