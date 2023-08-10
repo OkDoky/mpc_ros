@@ -155,7 +155,7 @@ bool RotateBeforeTracking::mpcComputeVelocityCommands(geometry_msgs::Twist& cmd_
   double path_direction = tf2::getYaw(ref_plan[0].pose.orientation);
   double etheta = path_direction - yaw;
   etheta = normalizeAngle(etheta, -M_PI, M_PI);
-  cmd_vel.angular.z = etheta;
+  cmd_vel.angular.z = etheta*2.0;
   return true;
 }
 
@@ -169,7 +169,7 @@ bool StopAndRotate::mpcComputeVelocityCommands(geometry_msgs::Twist& cmd_vel,
   double goal_direction = tf2::getYaw(goal_pose.pose.orientation);
   double etheta = goal_direction - yaw;
   etheta = normalizeAngle(etheta, -M_PI, M_PI);
-  cmd_vel.angular.z = etheta;
+  cmd_vel.angular.z = etheta*2.0;
   return true;
 }
 
