@@ -200,6 +200,7 @@ namespace mpc_ros{
             double heading_yaw_error_threshold_;
 
             double dt_;
+            double footprint_padding_;
             double _pathLength, _waypointsDist;
             double local_planner_resolution_;
             int _downSampling;

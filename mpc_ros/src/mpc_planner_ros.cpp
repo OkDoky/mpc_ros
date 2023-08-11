@@ -101,6 +101,7 @@ namespace mpc_ros{
         ROS_INFO("[MPCPlannerROS] heading yaw threshold : %.5f", heading_yaw_error_threshold_);
 
         footprint_ = costmap_2d::makeFootprintFromParams(costmap_nh); // std::vector<geometry_msgs::Point>
+        footprint_padding_ = 0.1;
         if (!footprint_.empty()){
             std::stringstream ss;
             for (const auto& point: footprint_){
@@ -356,12 +357,14 @@ namespace mpc_ros{
         // Using convexHull
         std::vector<cv::Point2d> footprint_points;
         for (const auto& point: footprint){
-            double x = point.x;
-            double y = point.y;
+            double x = point.x + std::copysign(footprint_padding_, point.x);
+            double y = point.y + std::copysign(footprint_padding_, point.y);
             footprint_points.emplace_back(x,y);
         }
+        double increase_size = 0.005;
 
         std::vector<std::vector<cv::Point2f>> convex_hulls;
+        int i = 0;
         for (const auto& pose: local_plan){
             double path_x = pose.pose.position.x;
             double path_y = pose.pose.position.y;
@@ -369,10 +372,13 @@ namespace mpc_ros{
 
             std::vector<cv::Point2f> transformed_footprint;
             for (const auto& point: footprint_points){
-                float x = static_cast<float>(path_x + point.x * cos(path_yaw) - point.y * sin(path_yaw));
-                float y = static_cast<float>(path_y + point.x * sin(path_yaw) + point.y * cos(path_yaw));
+                double px = point.x + std::copysign(increase_size, point.x) * i;
+                double py = point.y + std::copysign(increase_size, point.y) * i;
+                float x = static_cast<float>(path_x + px * cos(path_yaw) - py * sin(path_yaw));
+                float y = static_cast<float>(path_y + px * sin(path_yaw) + py * cos(path_yaw));
                 transformed_footprint.emplace_back(x,y);
             }
+            i++;
             convex_hulls.push_back(transformed_footprint);
         }
         std::vector<cv::Point2f> merged_convex_hull;
