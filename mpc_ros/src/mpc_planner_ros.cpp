@@ -77,8 +77,8 @@ namespace mpc_ros{
                 ROS_WARN("A controller_frequency less than 0 has been set. Ignoring the parameter, assuming a rate of 20Hz");
             }
         }
-        _dt = double(1.0/controller_frequency); // time step duration dt in s 
-        tracking_state_->updateControlFrequency(_dt);
+        dt_ = double(1.0/controller_frequency); // time step duration dt in s 
+        tracking_state_->updateControlFrequency(dt_);
 
         //Publishers and Subscribers
         pub_g_plan_ = private_nh.advertise<nav_msgs::Path>("global_plan", 1);
@@ -148,7 +148,7 @@ namespace mpc_ros{
         tracking_state_->updateMpcConfigs(config);
         double max_speed = config.max_speed;
         double max_throttle = config.max_throttle;
-        quintic_poly_planner_.initialize(max_speed, max_throttle, local_planner_resolution_);
+        quintic_poly_planner_.initialize(max_speed, max_throttle, local_planner_resolution_, heading_yaw_error_threshold_);
 
         planner_util_.reconfigureCB(limits, false);
 
@@ -283,8 +283,16 @@ namespace mpc_ros{
             ROS_WARN("[MPCPlannerROS] pruned plan is empty");
             return false;
         }
-        // double path_direction = tf2::getYaw(pruned_plan[0].pose.orientation);
+        std::string cur_state = tracking_state_->getContext();
         double error_theta = getGoalOrientationAngleDifference(global_pose, pruned_plan.front());
+        
+        if (cur_state == std::string("Tracking")){
+            if (abs(error_theta) <= heading_yaw_error_threshold_*3){
+                return true;
+            }
+            ROS_WARN("[MPCPlannerROS] below etheta, etheta : %.5f, heading_yaw err threshold : %.5f, so transition to rotate",error_theta,heading_yaw_error_threshold_*3);
+            return false;
+        }
         if (abs(error_theta) <= heading_yaw_error_threshold_){
             return true;
         }
@@ -375,7 +383,7 @@ namespace mpc_ros{
         cv::convexHull(merged_convex_hull, final_convex_hull);
 
         merged_polygon.header.stamp = ros::Time::now();
-        merged_polygon.header.frame_id = robot_base_frame_;
+        merged_polygon.header.frame_id = global_frame_;
         for (const auto& point: final_convex_hull){
             geometry_msgs::Point32 polygon_point;
             polygon_point.x = point.x;
@@ -420,8 +428,8 @@ namespace mpc_ros{
                             local_goal_maker_.getLocalGoal(pruned_plan[0], global_plan[0].pose.orientation),
                             feedback_vel, pruned_plan, false, local_plan);
             }
-            // geometry_msgs::PolygonStamped merged_polygon;
-            // mergeFootprints(local_plan, footprint_, merged_polygon);
+            geometry_msgs::PolygonStamped merged_polygon;
+            mergeFootprints(local_plan, footprint_, merged_polygon);
         }else{
             ROS_WARN("[MPCPlannerROS] global plan is empty");
             isUpdated &= false;
@@ -570,14 +578,16 @@ namespace mpc_ros{
                 temp_pose.pose.orientation.w = quat_temp[3];
                 mpc_traj.poses.push_back(temp_pose);
             }
-            geometry_msgs::PolygonStamped merged_polygon;
-            mergeFootprints(mpc_traj.poses, footprint_, merged_polygon);
+            // geometry_msgs::PolygonStamped merged_polygon;
+            // mergeFootprints(mpc_traj.poses, footprint_, merged_polygon);
             pub_mpc_traj_.publish(mpc_traj);
         }else{
             nav_msgs::Path mpc_traj;
             mpc_traj.header.frame_id = robot_base_frame_;
             mpc_traj.header.stamp = ros::Time::now();
             pub_mpc_traj_.publish(mpc_traj);
+            // geometry_msgs::PolygonStamped merged_polygon;
+            // mergeFootprints(mpc_traj.poses, footprint_, merged_polygon);
         }
 
         return is_ok;

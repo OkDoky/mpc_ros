@@ -199,7 +199,7 @@ namespace mpc_ros{
             
             double heading_yaw_error_threshold_;
 
-            double _dt;
+            double dt_;
             double _pathLength, _waypointsDist;
             double local_planner_resolution_;
             int _downSampling;
