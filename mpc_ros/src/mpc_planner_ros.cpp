@@ -179,7 +179,7 @@ namespace mpc_ros{
     void MPCPlannerROS::publishLocalPrunedPlan(std::vector<geometry_msgs::PoseStamped>& path){
         base_local_planner::publishPlan(path, pub_l_pruned_plan_);
     }
-  
+
     bool MPCPlannerROS::setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan){
         if( ! isInitialized()) {
             ROS_ERROR("This planner has not been initialized, please call initialize() before using this planner");
