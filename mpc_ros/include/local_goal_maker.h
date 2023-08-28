@@ -49,10 +49,10 @@ class LocalGoalMaker
 
         // Accessors for multi inputs
         void setCallBackInputs(double width, double replan){
-            // setLength(length);
-            // setTheta(theta);
-            if (replan < 0.5)
+            if (replan < 0.5){
+                setWidth(0.0);
                 return;
+            }
             setWidth(width);
         }
 
