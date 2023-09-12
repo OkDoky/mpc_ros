@@ -101,7 +101,7 @@ namespace mpc_ros{
         ROS_INFO("[MPCPlannerROS] heading yaw threshold : %.5f", heading_yaw_error_threshold_);
 
         footprint_ = costmap_2d::makeFootprintFromParams(costmap_nh); // std::vector<geometry_msgs::Point>
-        footprint_padding_ = 0.1;
+        footprint_padding_ = 0.05;
         if (!footprint_.empty()){
             std::stringstream ss;
             for (const auto& point: footprint_){
