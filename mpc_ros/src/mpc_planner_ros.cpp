@@ -160,7 +160,7 @@ namespace mpc_ros{
     }
 
     void MPCPlannerROS::subPlanAgentOutputCB(const std_msgs::Float32MultiArray& output){
-        local_goal_maker_.setCallBackInputs(output.data[0], output.data[1]);
+        local_goal_maker_.setCallBackInputs(output.data[0]);
         // ROS_WARN("[MPCPlannerROS] subplan agent output cb, length : %.3f, theta : %.3f", local_goal_maker_.getLength(), local_goal_maker_.getTheta());
     }
 
@@ -427,6 +427,7 @@ namespace mpc_ros{
             }
             local_goal_maker_.setCte(getSignedCte(pruned_plan[0], global_pose));
             if(plan_length <= 3.0){
+                local_goal_maker_.setWidth(0.0);
                 isUpdated &= getLocalPlan(global_pose, goal_pose,
                             feedback_vel, pruned_plan, true, local_plan);
             }else{

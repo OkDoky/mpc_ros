@@ -48,11 +48,7 @@ class LocalGoalMaker
         void setCte(double cte) { signed_cte_ = cte; }
 
         // Accessors for multi inputs
-        void setCallBackInputs(double width, double replan){
-            if (replan < 0.5){
-                setWidth(0.0);
-                return;
-            }
+        void setCallBackInputs(double width){
             setWidth(width);
         }
 
