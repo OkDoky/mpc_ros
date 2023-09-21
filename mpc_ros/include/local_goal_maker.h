@@ -11,7 +11,7 @@ class LocalGoalMaker
     public:
         LocalGoalMaker() :min_length_(0.5), 
             min_theta_(-M_PI/4.0), max_theta_(M_PI/4.0),
-            length_(3.0), width_(0.0), theta_(0.0), 
+            length_(2.0), width_(0.0), theta_(0.0), 
             signed_cte_(0.0), update_(false){}
 
         // Accessors and Mutators for Length
