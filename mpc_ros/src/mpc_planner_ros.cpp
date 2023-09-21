@@ -98,6 +98,7 @@ namespace mpc_ros{
         heading_yaw_error_threshold_ = 0.5236; // 30 degrees
         heading_yaw_error_threshold_ = private_nh.param<double>("heading_yaw_threshold", 0.1745); // 30 degrees
         local_planner_resolution_ = private_nh.param<double>("local_planner_resolution", 0.03);
+        local_goal_length_ = private_nh.param<double>("local_goal_length", 2.0);
         ROS_INFO("[MPCPlannerROS] heading yaw threshold : %.5f", heading_yaw_error_threshold_);
 
         footprint_ = costmap_2d::makeFootprintFromParams(costmap_nh); // std::vector<geometry_msgs::Point>
@@ -193,6 +194,7 @@ namespace mpc_ros{
     }
 
     bool MPCPlannerROS::getRobotPose(geometry_msgs::PoseStamped& robot_pose){
+        // get global frame robot pose
         geometry_msgs::PoseStamped temp_pose;
         if(!costmap_ros_->getRobotPose(temp_pose)){
             return false;
@@ -202,6 +204,7 @@ namespace mpc_ros{
     }
 
     void MPCPlannerROS::getRobotVel(geometry_msgs::Twist& feedback_vel){
+        // get base frame robot velocity
         feedback_vel = _feedback_vel;
     }
 
@@ -361,7 +364,7 @@ namespace mpc_ros{
             double y = point.y + std::copysign(footprint_padding_, point.y);
             footprint_points.emplace_back(x,y);
         }
-        double increase_size = 0.005;
+        double increase_size = 0.003;
 
         std::vector<std::vector<cv::Point2f>> convex_hulls;
         int i = 0;
@@ -426,13 +429,13 @@ namespace mpc_ros{
                                     pruned_plan[0].pose.position.y-pruned_plan.back().pose.position.y);
             }
             local_goal_maker_.setCte(getSignedCte(pruned_plan[0], global_pose));
-            if(plan_length <= 3.0){
+            if(plan_length <= local_goal_length_){
                 local_goal_maker_.setWidth(0.0);
                 isUpdated &= getLocalPlan(global_pose, goal_pose,
                             feedback_vel, pruned_plan, true, local_plan);
             }else{
                 isUpdated &= getLocalPlan(global_pose, 
-                            local_goal_maker_.getLocalGoal(pruned_plan[0], global_plan[0].pose.orientation),
+                            local_goal_maker_.getLocalGoal(global_pose, pruned_plan[0].pose.orientation),
                             feedback_vel, pruned_plan, false, local_plan);
             }
             geometry_msgs::PolygonStamped merged_polygon;
