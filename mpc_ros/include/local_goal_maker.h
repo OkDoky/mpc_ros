@@ -61,7 +61,7 @@ class LocalGoalMaker
             geometry_msgs::PoseStamped local_goal;
             double local_y = width_;
             double local_x = length_;
-            double yaw = tf2::getYaw(global_pose.pose.orientation);
+            double yaw = tf2::getYaw(path_quat);
             double global_x = global_pose.pose.position.x + local_x * cos(yaw) - local_y * sin(yaw);
             double global_y = global_pose.pose.position.y + local_x * sin(yaw) + local_y * cos(yaw);
             local_goal.pose.position.x = global_x;
