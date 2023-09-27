@@ -370,8 +370,8 @@ namespace mpc_ros{
                 x = double((b*(b*lpx - a*lpy) - a*c)/denominator);
                 y = double((a*(-b*lpx + a*lpy) - b*c)/denominator);
             }
-            pruned_plan.begin().pose.position.x = x;
-            pruned_plan.begin().pose.position.y = y;
+            pruned_plan.begin()->pose.position.x = x;
+            pruned_plan.begin()->pose.position.y = y;
         }
 
         return true;
