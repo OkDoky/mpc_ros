@@ -85,7 +85,7 @@ namespace mpc_ros{
         pub_l_plan_ = private_nh.advertise<nav_msgs::Path>("local_plan", 1);
         pub_mpc_traj_   = private_nh.advertise<nav_msgs::Path>("mpc_trajectory", 1);// MPC trajectory output
         pub_mpc_ref_  = private_nh.advertise<nav_msgs::Path>("mpc_reference", 1); // reference path for MPC ///mpc_reference 
-        pub_g_pruned_plan_ = private_nh.advertise<nav_msgs::Path>("global_pruned_plan", 1);
+        pub_g_pruned_plan_ = private_nh.advertise<nav_msgs::Path>("global_origin_plan", 1);
         pub_l_pruned_plan_ = private_nh.advertise<nav_msgs::Path>("local_pruned_plan", 1);
         pub_pruned_first_point_ = private_nh.advertise<geometry_msgs::PoseStamped>("pruned_first_point",1);
         pub_merged_footprint_ = private_nh.advertise<geometry_msgs::PolygonStamped>("merged_footprint",1);
@@ -98,6 +98,7 @@ namespace mpc_ros{
         heading_yaw_error_threshold_ = 0.5236; // 30 degrees
         heading_yaw_error_threshold_ = private_nh.param<double>("heading_yaw_threshold", 0.1745); // 30 degrees
         local_planner_resolution_ = private_nh.param<double>("local_planner_resolution", 0.03);
+        straight_plan_length_ = private_nh.param<double>("straight_plan_length", 1.5);
         ROS_INFO("[MPCPlannerROS] heading yaw threshold : %.5f", heading_yaw_error_threshold_);
 
         footprint_ = costmap_2d::makeFootprintFromParams(costmap_nh); // std::vector<geometry_msgs::Point>
@@ -188,6 +189,7 @@ namespace mpc_ros{
         ROS_INFO("[MPCPlannerROS] got new plan");
         set_new_goal_ = true;
         planner_util_.setPlan(orig_global_plan);
+        global_plan_ = orig_global_plan;
         return true;
         
     }
@@ -343,6 +345,35 @@ namespace mpc_ros{
         if (pruned_plan.empty()){
             pruned_plan.push_back(last_point);
         }
+
+        // to get first point to exact close to purpendicular point of path
+        if (pruned_plan.size() > 2){
+            double gp1x = pruned_plan[0].pose.position.x;
+            double gp1y = pruned_plan[0].pose.position.y;
+            double gp2x = pruned_plan[1].pose.position.x;
+            double gp2y = pruned_plan[1].pose.position.y;
+            double lpx = global_pose.pose.position.x;
+            double lpy = global_pose.pose.position.y;
+
+            double a = gp2y - gp1y;
+            double b = gp1x - gp2x;
+            double c = (gp1y - gp2y)*gp1x + (gp2x - gp1x)*gp1y;
+
+            double denominator = a*a + b*b;
+            double x,y;
+            // cannot be work.. underflow..
+            if (abs(denominator) < 1e-20){
+                x = gp1x;
+                y = gp1y;
+                ROS_ERROR("[MPCPlannerROS] cannot calculate purpendicular point..");
+            } else{
+                x = double((b*(b*lpx - a*lpy) - a*c)/denominator);
+                y = double((a*(-b*lpx + a*lpy) - b*c)/denominator);
+            }
+            pruned_plan.begin().pose.position.x = x;
+            pruned_plan.begin().pose.position.y = y;
+        }
+
         return true;
     }
 
@@ -416,17 +447,17 @@ namespace mpc_ros{
         
         isUpdated = essentialIsUpdated;
         isUpdated &= getGlobalPlan(global_pose, global_plan);
-        pruned_plan = global_plan;
+        pruned_plan = global_plan_;
         if (!global_plan.empty()){
             isUpdated &= getPrunedPlan(global_pose, pruned_plan);
             
             double plan_length = 0.0;
-            if (pruned_plan.size() >= 2){
+            if (pruned_plan.size() >= straight_plan_length_){
                 plan_length = hypot(pruned_plan[0].pose.position.x-pruned_plan.back().pose.position.x,
                                     pruned_plan[0].pose.position.y-pruned_plan.back().pose.position.y);
             }
             local_goal_maker_.setCte(getSignedCte(pruned_plan[0], global_pose));
-            if(plan_length <= 3.0){
+            if(plan_length <= straight_plan_length_){
                 local_goal_maker_.setWidth(0.0);
                 isUpdated &= getLocalPlan(global_pose, goal_pose,
                             feedback_vel, pruned_plan, true, local_plan);
