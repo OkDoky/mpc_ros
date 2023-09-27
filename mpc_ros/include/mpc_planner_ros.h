@@ -203,6 +203,7 @@ namespace mpc_ros{
             double footprint_padding_;
             double _pathLength, _waypointsDist;
             double local_planner_resolution_;
+            double straight_plan_length_;
             int _downSampling;
             bool latch_xy_goal_tolerance_, latch_yaw_goal_tolerance_, set_new_goal_;
             double polyeval(Eigen::VectorXd coeffs, double x);
