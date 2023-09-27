@@ -540,13 +540,13 @@ namespace mpc_ros{
             return false;
         }
         // publish updated plan
-        if (local_plan.size() != 0){
-            publishLocalPlan(local_plan);
-        } if (global_plan.size() != 0){
+        if (global_plan.size() != 0){
             publishGlobalPlan(global_plan);
         } if (pruned_plan.size() != 0){
             publishGlobalPrunedPlan(pruned_plan);
-        }
+        } if (local_plan.size() != 0){
+            publishLocalPlan(local_plan);
+        } 
         // for tracking local plan
         std::vector<geometry_msgs::PoseStamped> ref_plan;
         if (!local_plan.empty()){
